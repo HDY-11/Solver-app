@@ -1,0 +1,38 @@
+[workspace]
+members = ['rust-libs/simple_motion']
+
+[package]
+name = "solver"
+version = "0.1.0"
+description = "A problem visualizer and solver"
+authors = ["you"]
+edition = "2021"
+
+[lib]
+name = "solver_lib"
+crate-type = ['staticlib', "cdylib", "rlib"]
+
+[[bin]]
+name = "solver"
+path = "src/main.rs"
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-opener = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rand = "0.8"
+tauri-plugin-python = { version = "0.3.7", features = ["pyo3"],default-features = false}
+pyo3 = { version = "0.26.0", features = ["auto-initialize"] }
+tauri-plugin-dialog = "2"
+nalgebra = "0.34.2"
+pyo3-stub-gen = "0.22.1"
+ndarray = "0.17.2"
+burn = "0.20.1"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[workspace.dependencies]
+nalgebra = "0.34.2"
+pyo3 = { version = "0.26.0", features = ["auto-initialize"] }

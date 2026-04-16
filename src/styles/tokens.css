@@ -1,0 +1,61 @@
+:root {
+  /* ===== 字体体系 ===== */
+  --font-ui: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono: 'Cascadia Mono', 'Fira Code', 'JetBrains Mono', monospace;
+  
+  /* ===== 间距尺度（4px 基准网格）===== */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  
+  /* ===== 圆角（硬朗风格）===== */
+  --radius-sm: 2px;
+  --radius-md: 4px;
+  --radius-lg: 8px;
+  
+  /* ===== 中性色盘（冷灰基调）===== */
+  --gray-0: #FFFFFF;
+  --gray-50: #F9FAFB;
+  --gray-100: #F5F5F5;
+  --gray-200: #E5E7EB;
+  --gray-300: #D1D5DB;
+  --gray-400: #9CA3AF;
+  --gray-500: #6B7280;
+  --gray-600: #4B5563;
+  --gray-700: #374151;
+  --gray-800: #1F2937;
+  --gray-900: #111827;
+  
+  /* ===== 品牌色 ===== */
+  --primary: #1662D3;        /* 冷调蓝，替代原来的 #2196F3 */
+  --primary-hover: #0F509E;
+  --primary-active: #0A3D7A;
+  
+  --success: #1E8F4B;
+  --success-hover: #166B38;
+  
+  --warning: #E6A020;
+  --danger: #D1293D;
+  
+  /* ===== 侧边栏专属渐变 ===== */
+  --sidebar-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  --sidebar-accent: #FFD700;
+  
+  /* ===== 阴影层级 ===== */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 2px 4px rgba(0, 0, 0, 0.1);
+  --shadow-lg: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+  --shadow-sidebar: 2px 0 10px rgba(0, 0, 0, 0.1);
+  
+  /* ===== 过渡动画 ===== */
+  --transition-fast: 150ms ease;
+  --transition-base: 300ms ease;
+  
+  /* ===== 字体渲染优化 ===== */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
