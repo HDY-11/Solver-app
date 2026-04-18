@@ -1,47 +1,48 @@
 @import url('./styles/tokens.css');
 
-.dApp {
-  display: grid
-}
-.dheader { grid-area: 'hd'; }
-.dsidebar { grid-area: 'sb'; }
-
-
-
-/* ===== 应用容器 ===== */
+/* ===== 应用网格布局 ===== */
 .App {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  grid-template-rows: auto auto 1fr;
+  grid-template-areas: 
+    "header header"
+    "bar bar"
+    "sidebar main";
   min-height: 100vh;
   background: var(--gray-100);
-  display: flex;
-  flex-direction: column;
 }
 
-/* ===== 顶部导航栏 ===== */
+/* ===== 网格区域分配 ===== */
 .app-header {
-  border-bottom: 1px solid var(--gray-200);
-  box-shadow: var(--shadow-sm);
-  position: sticky;
-  top: 0;
-  z-index: 100;
+  grid-area: header;
 }
 
-.app-body {
-  display: flex;
-  flex: 1;
+.bar {
+  grid-area: bar;
+  /* 预留空间，暂时隐藏 */
+
 }
 
 .app-sidebar {
+  grid-area: sidebar;
   background: var(--gray-900);
   color: var(--gray-0);
-  width: 10%;
-  min-height: 100vh;
   padding: var(--space-4);
   box-shadow: var(--shadow-sidebar);
+  /* 移除 width 和 min-height，由 grid 控制 */
 }
 
+.main-content {
+  grid-area: main;
+  padding: var(--space-6);
+  /* 移除 flex 相关属性 */
+}
+
+/* ===== 头部内容 ===== */
 .header-content {
   background: var(--gray-900);
-  margin: 0 auto;
+  margin: 0;
   padding: var(--space-0);
   display: flex;
   align-items: center;
@@ -65,7 +66,7 @@
   padding: var(--space-2);
   background: transparent;
   border: none;
-  border-radius: var(--radius-sd);
+  border-radius: var(--radius-md);
   color: var(--gray-0);
   font-size: 0.875rem;
   font-weight: 500;
@@ -98,12 +99,7 @@
   font-weight: 500;
 }
 
-/* ===== 主内容区 ===== */
-.main-content {
-  flex: 1;
-  padding: var(--space-6);
-}
-
+/* ===== 内容容器 ===== */
 .content-container {
   max-width: 80%;
   margin: 0 auto;
@@ -328,6 +324,19 @@
 
 /* ===== 响应式设计 ===== */
 @media (max-width: 768px) {
+  .App {
+    grid-template-columns: 1fr;
+    grid-template-areas: 
+      "header"
+      "bar"
+      "sidebar"
+      "main";
+  }
+  
+  .app-sidebar {
+    min-height: auto;
+  }
+  
   .header-content {
     flex-direction: column;
     align-items: flex-start;

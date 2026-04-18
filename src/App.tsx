@@ -48,34 +48,42 @@ function App() {
   const currentPageComponent = pages.find(p => p.id === currentPage)?.component;
 
   return (
-    <div className="App">
-      {/* 顶部导航栏 */}
-      <header className="app-header">
-        <div className="header-content">
-          <nav className="header-nav">
-            {pages.map(page => (
-              <button
-                key={page.id}
-                className={`nav-link ${currentPage === page.id ? 'active' : ''}`}
-                onClick={() => setCurrentPage(page.id)}
-                title={page.details}
-              >
-                <span className="nav-icon">{page.icon}</span>
-                <span className="nav-name">{page.name}</span>
-              </button>
-            ))}
-          </nav>
-        </div>
-      </header>
-       <div className="app-body">
-    <div className="app-sidebar">1</div>
+  <div className="App">
+    {/* 顶部导航栏 */}
+    <header className="app-header">
+      <div className="header-content">
+        <nav className="header-nav">
+          {pages.map(page => (
+            <button
+              key={page.id}
+              className={`nav-link ${currentPage === page.id ? 'active' : ''}`}
+              onClick={() => setCurrentPage(page.id)}
+              title={page.details}
+            >
+              <span className="nav-icon">{page.icon}</span>
+              <span className="nav-name">{page.name}</span>
+            </button>
+          ))}
+        </nav>
+      </div>
+    </header>
+    
+    {/* 工具栏区域（预留） */}
+    <div className="bar">
+      {/* 未来可以放工具栏、面包屑等 */}
+      <span>hdfgdgf</span>
+    </div>
+    
+    {/* 侧边栏 */}
+    <aside className="app-sidebar">114514</aside>
+    
+    {/* 主内容区 */}
     <main className="main-content">
       <div className="content-container">
         <div>{currentPageComponent}</div>
       </div>
     </main>
   </div>
-    </div>
   );
 }
 

@@ -285,19 +285,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "async_py"
-version = "0.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "55d63905e74cc8392e86fdf9473e61ff6d82a0262126e89673ea42684a4972a2"
-dependencies = [
- "dunce",
- "pyo3",
- "serde_json",
- "thiserror 2.0.18",
- "tokio",
-]
-
-[[package]]
 name = "atk"
 version = "0.18.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7592,7 +7579,6 @@ dependencies = [
  "tauri-build",
  "tauri-plugin-dialog",
  "tauri-plugin-opener",
- "tauri-plugin-python",
 ]
 
 [[package]]
@@ -8152,24 +8138,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tauri-plugin-python"
-version = "0.3.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "08166c037f7a3d086539ab420ac46f0d557970a203e20ba08a5f0f234d573de7"
-dependencies = [
- "async-trait",
- "async_py",
- "dunce",
- "lazy_static",
- "serde",
- "serde_json",
- "tauri",
- "tauri-plugin",
- "thiserror 2.0.18",
- "tokio",
-]
-
-[[package]]
 name = "tauri-runtime"
 version = "2.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8484,7 +8452,6 @@ dependencies = [
  "bytes",
  "libc",
  "mio",
- "parking_lot",
  "pin-project-lite",
  "signal-hook-registry",
  "socket2",
