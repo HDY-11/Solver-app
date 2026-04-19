@@ -3,7 +3,7 @@ members = ["rust-libs/python-bridge",'rust-libs/simple_motion', "rust-libs/utils
 
 [package]
 name = "solver"
-version = "0.1.0"
+version = "0.2.0"
 description = "A problem visualizer and solver"
 authors = ["you"]
 edition = "2021"
