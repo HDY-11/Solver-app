@@ -1,15 +1,4 @@
-export interface City {
-  id: number;
-  x: number;
-  y: number;
-}
-
-export interface TspData {
-  cities: City[];
-  adjacency_list: Array<Array<[number, number]>>;
-}
-
-export type PageId = 'solver' | 'about' | 'settings' | 'EditorPage';
+export type PageId = 'EditorPage' | 'settings';
 
 export interface Page {
   id: PageId;

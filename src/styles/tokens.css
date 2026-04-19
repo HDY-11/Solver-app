@@ -1,9 +1,15 @@
+/* ============================================
+   设计令牌 - 全局样式变量定义
+   修改此文件可统一调整整个应用的外观
+   ============================================ */
+
 :root {
   /* ===== 字体体系 ===== */
-  --font-ui: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
-  --font-mono: 'Cascadia Mono', 'Fira Code', 'JetBrains Mono', monospace;
+  --font-ui: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
   
-  /* ===== 间距尺度（4px 基准网格）===== */
+  /* ===== 间距尺度（基于 4px 网格）===== */
+  --space-0: 0px;
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
@@ -11,16 +17,19 @@
   --space-5: 20px;
   --space-6: 24px;
   --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
   
-  /* ===== 圆角（硬朗风格）===== */
-  --radius-sm: 2px;
-  --radius-md: 4px;
-  --radius-lg: 8px;
+  /* ===== 圆角 ===== */
+  --radius-sm: 4px;    /* 小元素：标签、徽章 */
+  --radius-md: 6px;    /* 按钮、输入框 */
+  --radius-lg: 8px;    /* 卡片、面板 */
+  --radius-xl: 12px;   /* 模态框 */
   
   /* ===== 中性色盘（冷灰基调）===== */
   --gray-0: #FFFFFF;
   --gray-50: #F9FAFB;
-  --gray-100: #F5F5F5;
+  --gray-100: #F3F4F6;
   --gray-200: #E5E7EB;
   --gray-300: #D1D5DB;
   --gray-400: #9CA3AF;
@@ -29,33 +38,52 @@
   --gray-700: #374151;
   --gray-800: #1F2937;
   --gray-900: #111827;
+  --gray-950: #0B0F19;
   
-  /* ===== 品牌色 ===== */
-  --primary: #1662D3;        /* 冷调蓝，替代原来的 #2196F3 */
-  --primary-hover: #0F509E;
-  --primary-active: #0A3D7A;
+  /* ===== 品牌色（主色）===== */
+  --primary: #2563EB;          /* 蓝色主色调 */
+  --primary-light: #3B82F6;    /* 悬停变亮 */
+  --primary-dark: #1D4ED8;     /* 点击变深 */
+  --primary-bg: #EFF6FF;       /* 浅色背景 */
   
-  --success: #1E8F4B;
-  --success-hover: #166B38;
+  /* ===== 功能色 ===== */
+  --success: #10B981;          /* 成功绿 */
+  --success-light: #34D399;
+  --success-dark: #059669;
+  --success-bg: #ECFDF5;
   
-  --warning: #E6A020;
-  --danger: #D1293D;
+  --warning: #F59E0B;          /* 警告橙 */
+  --warning-light: #FBBF24;
+  --warning-dark: #D97706;
+  --warning-bg: #FFFBEB;
   
-  /* ===== 侧边栏专属渐变 ===== */
-  --sidebar-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  --sidebar-accent: #FFD700;
+  --danger: #EF4444;           /* 危险红 */
+  --danger-light: #F87171;
+  --danger-dark: #DC2626;
+  --danger-bg: #FEF2F2;
+  
+  --info: #6366F1;             /* 信息紫 */
+  --info-light: #818CF8;
+  --info-dark: #4F46E5;
+  --info-bg: #EEF2FF;
   
   /* ===== 阴影层级 ===== */
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
-  --shadow-md: 0 2px 4px rgba(0, 0, 0, 0.1);
-  --shadow-lg: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-  --shadow-sidebar: 2px 0 10px rgba(0, 0, 0, 0.1);
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.1), 0 1px 2px rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+  
+  /* 侧边栏专用阴影（右侧有轻微投影） */
+  --shadow-sidebar: 2px 0 8px rgba(0, 0, 0, 0.05);
   
   /* ===== 过渡动画 ===== */
-  --transition-fast: 150ms ease;
-  --transition-base: 300ms ease;
+  --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-base: 250ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-slow: 350ms cubic-bezier(0.4, 0, 0.2, 1);
   
   /* ===== 字体渲染优化 ===== */
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
 }

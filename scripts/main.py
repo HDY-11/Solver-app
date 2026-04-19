@@ -1,4 +1,4 @@
-import simple_motion;
+import simple_motion
 
 s = simple_motion.Motion()
 
@@ -16,3 +16,5 @@ a = cp.array([[1, 2], [3, 4]])
 b = cp.array([[5, 6], [7, 8]])
 c = cp.dot(a, b)
 print(f"矩阵乘法结果:\n{c}")
+
+print(f"添加内容")

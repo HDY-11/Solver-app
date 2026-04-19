@@ -1,5 +1,5 @@
 [workspace]
-members = ['rust-libs/simple_motion']
+members = ["rust-libs/python-bridge",'rust-libs/simple_motion', "rust-libs/utils"]
 
 [package]
 name = "solver"
@@ -28,6 +28,8 @@ nalgebra = "0.34.2"
 pyo3-stub-gen = "0.22.1"
 ndarray = "0.17.2"
 burn = "0.20.1"
+python-bridge = { version = "0.1.0", path = "rust-libs/python-bridge" }
+tokio = "1.52.1"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -35,3 +37,4 @@ tauri-build = { version = "2", features = [] }
 [workspace.dependencies]
 nalgebra = "0.34.2"
 pyo3 = { version = "0.26.0", features = ["auto-initialize"] }
+tokio = "1.52.1"

@@ -1,0 +1,13 @@
+[package]
+name = "python-bridge"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "python_bridge"
+crate-type = ["lib", "cdylib"]
+
+[dependencies]
+pyo3 ={ workspace = true}
+tokio = { workspace = true }
+utils = { version = "0.1.0", path = "../utils" }
