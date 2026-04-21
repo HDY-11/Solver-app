@@ -1,0 +1,5 @@
+interpreter=C:\Files\Study\Solver\.venv\Scripts\python.exe
+lib_dir=C:\Files\Study\Solver\.venv\Scripts\libs
+version=3.13
+implementation=CPython
+shared=true

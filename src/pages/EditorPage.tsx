@@ -13,6 +13,7 @@ const EditorPage: React.FC<EditorPageProps> = ({
 }) => {
     const [code, setCode] = useState<string>('');
     const [path, setPath] = useState<string | null>(null);
+    const [result, setResult] = useState<string | null>(null);
 
     const handleEditorChange = (value: string | undefined) => {
         setCode(value || '');
@@ -58,6 +59,7 @@ const EditorPage: React.FC<EditorPageProps> = ({
         try {
             const result = await invoke<string>('run_script', { path });
             alert(`执行成功:\n${result}`);
+            setResult(result);
         } catch (error) {
             alert(`执行失败:\n${error}`);
         }
@@ -90,7 +92,7 @@ const EditorPage: React.FC<EditorPageProps> = ({
     return (
         <div className="page-container" style={{ padding: 0, overflow: 'hidden' }}>
             <Editor
-                height="100%"
+                height="50%"
                 defaultLanguage={defaultLanguage}
                 value={code}
                 onChange={handleEditorChange}
@@ -104,6 +106,7 @@ const EditorPage: React.FC<EditorPageProps> = ({
                     automaticLayout: true,
                 }}
             />
+            <div>{result}</div>
         </div>
     );
 };

@@ -16,13 +16,26 @@ crate-type = ['staticlib', "cdylib", "rlib"]
 name = "solver"
 path = "src/main.rs"
 
+[profile.release-fast]
+inherits = "release"
+
+opt-level = 1
+
+lto = "off"
+
+codegen-units = 256
+
+strip = "none"
+
+panic = "unwind"
+
 [dependencies]
 tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 rand = "0.8"
-pyo3 = { version = "0.26.0", features = ["auto-initialize"] }
+pyo3 = { version = "0.28.3", features = ["auto-initialize"] }
 tauri-plugin-dialog = "2"
 nalgebra = "0.34.2"
 pyo3-stub-gen = "0.22.1"
@@ -36,5 +49,5 @@ tauri-build = { version = "2", features = [] }
 
 [workspace.dependencies]
 nalgebra = "0.34.2"
-pyo3 = { version = "0.26.0", features = ["auto-initialize"] }
+pyo3 = { version = "0.28.3", features = ["auto-initialize"] }
 tokio = "1.52.1"
