@@ -1,0 +1,15 @@
+[package]
+name = "error-system"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "error_system"
+crate-type = ["lib", "cdylib"]
+
+[dependencies]
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+log = { workspace = true }
+pyo3 ={ workspace = true}
+tokio ={ workspace = true}

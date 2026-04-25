@@ -3,6 +3,7 @@ import Editor from '@monaco-editor/react';
 import { open } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
 import { useBarContent } from '../components/BarContext';
+import { info } from '@tauri-apps/plugin-log';
 
 interface EditorPageProps {
     defaultLanguage: string;
@@ -27,6 +28,7 @@ const EditorPage: React.FC<EditorPageProps> = ({
         try {
             await invoke('save_script', { code, path });
             alert('保存成功');
+            info('保存成功');
         } catch (error) {
             alert(`保存失败:\n${error}`);
         }

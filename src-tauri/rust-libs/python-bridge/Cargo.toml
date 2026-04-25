@@ -11,3 +11,5 @@ crate-type = ["lib", "cdylib"]
 pyo3 ={ workspace = true}
 tokio = { workspace = true }
 utils = { version = "0.1.0", path = "../utils" }
+error-system = { version = "0.1.0", path = "../error-system" }
+anyhow ={ workspace = true}

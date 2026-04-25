@@ -25,7 +25,8 @@
     "active": true,
     "resources": {
     "../scripts/": "scripts/",
-    "/dlls/": "./"
+
+    "../dlls/": "./"
   },
     "targets": ["msi"],
     "icon": [

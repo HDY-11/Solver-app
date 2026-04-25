@@ -8,7 +8,6 @@ pub struct Queue<T, const N: usize> {
 }
 
 impl<T, const N: usize> Queue<T, N> {
-
     pub fn new() -> Self {
         let data = std::array::from_fn(|_| MaybeUninit::uninit());
         Self {
@@ -18,7 +17,7 @@ impl<T, const N: usize> Queue<T, N> {
             len: 0,
         }
     }
-    
+
     pub fn push(&mut self, value: T) -> Result<(), T> {
         if self.len == N {
             return Err(value);
@@ -32,7 +31,7 @@ impl<T, const N: usize> Queue<T, N> {
         self.len += 1;
         Ok(())
     }
-    
+
     pub fn pop(&mut self) -> Option<T> {
         if self.len == 0 {
             return None;
@@ -49,12 +48,12 @@ impl<T, const N: usize> Queue<T, N> {
     pub fn is_empty(&self) -> bool {
         self.len == 0
     }
-    
+
     #[inline]
     pub fn is_full(&self) -> bool {
         self.len == N
     }
-    
+
     #[inline]
     pub fn len(&self) -> usize {
         self.len

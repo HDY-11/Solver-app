@@ -29,7 +29,9 @@ const AppContent: React.FC = () => {
   ];
 
   const currentPageComponent = pages.find(p => p.id === currentPage)?.component;
-
+  const testLog = () => {
+    console.info("这是来自前端的测试日志，应当被记录。");
+  };
   return (
     <div className="App">
       {/* 顶部导航栏 */}
@@ -46,6 +48,7 @@ const AppContent: React.FC = () => {
                 <span className="nav-name">{page.name}</span>
               </button>
             ))}
+            <button onClick={testLog} className={`nav-link.active`}>按钮</button>
           </nav>
         </div>
       </header>
