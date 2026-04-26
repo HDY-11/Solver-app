@@ -3,7 +3,7 @@ import Editor from '@monaco-editor/react';
 import { open } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
 import { useBarContent } from '../components/BarContext';
-import { info } from '@tauri-apps/plugin-log';
+import { info, warn, error } from '@tauri-apps/plugin-log';
 
 interface EditorPageProps {
     defaultLanguage: string;
@@ -27,14 +27,16 @@ const EditorPage: React.FC<EditorPageProps> = ({
     const handleSave = async () => {
         if (!path) {
             alert('请先加载或指定文件路径');
+            warn('未加载文件路径，使用保存')
             return;
         }
         try {
             await invoke('save_script', { code, path });
             alert('保存成功');
             info('保存成功');
-        } catch (error) {
-            alert(`保存失败:\n${error}`);
+        } catch (err) {
+            alert(`保存失败:\n${err}`);
+            error(`保存失败:\n${err}`);
         }
     };
 

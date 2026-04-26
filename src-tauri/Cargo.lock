@@ -7822,6 +7822,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "sol_evt_mgr"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tauri",
+]
+
+[[package]]
 name = "solver"
 version = "0.2.0"
 dependencies = [

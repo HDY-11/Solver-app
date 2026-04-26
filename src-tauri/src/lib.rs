@@ -1,6 +1,8 @@
 use log_system::init_logging;
 use std::cell::RefCell;
 use tauri::{command, Manager};
+use crossbeam_channel::bounded;
+use serde_json::Value;
 
 use python_bridge;
 
@@ -21,6 +23,13 @@ async fn run_script(path: String) -> Result<String, String> {
 fn read_script(path: String) -> Result<String, String> {
     std::fs::read_to_string(&path).map_err(|e| format!("读取文件失败: {}", e))
 }
+/*
+#[command]
+fn start_solver_event_loop(app_handle: AppHandle){
+    let (tx, rx) = bounded(64);
+
+}
+*/
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     eprintln!("[MAIN] 初始化日志系统...");

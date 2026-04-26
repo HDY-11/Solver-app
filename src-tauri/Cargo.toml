@@ -1,5 +1,5 @@
 [workspace]
-members = ["rust-libs/error-system", "rust-libs/log-system", "rust-libs/python-bridge", "rust-libs/utils",'rust-libs/simple_motion', "rupy-libs/shape3"]
+members = ["rust-libs/error-system", "rust-libs/log-system", "rust-libs/python-bridge", "rust-libs/utils",'rust-libs/simple_motion', "rupy-libs/shape3", "rust-libs/sol_evt_mgr"]
 
 [package]
 name = "solver"
@@ -70,3 +70,6 @@ log = "0.4.29"
 thiserror = "2.0.18"
 anyhow = "1.0.102"
 numpy = "0.28.0"
+tauri = { version = "2", features = [] }
+serde_json = "1"
+serde = { version = "1", features = ["derive"] }
