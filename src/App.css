@@ -36,7 +36,23 @@ html, body, #root {
   overflow: hidden;
 }
 
-/* ===== 网格区域分配 ===== */
+.View {
+  display: grid;
+  grid-template-columns: 1fr 2fr;
+  grid-template-rows: 3fr 1fr;
+  gap: var(--space-1);
+  grid-template-areas: 
+    "mid big"
+    "min big";
+  height: 100%;
+  width: 100%;
+  background: var(--gray-50);
+  overflow: hidden;
+}
+
+/* ===== 网格区域分配 ===== 
+          主网格区域
+*/
 .app-header {
   grid-area: header;
   background: var(--gray-100);
@@ -72,6 +88,21 @@ html, body, #root {
   overflow: auto; /* 主区域滚动 */
   position: relative;
 }
+/* ==== View内容 ===== */
+.min-content {
+  grid-area: min;
+  background: var(--gray-1000);
+}
+.mid-content {
+  grid-area: mid;
+  background: var(--gray-1000);
+}
+.big-content {
+  grid-area: big;
+  background: var(--gray-1000);
+}
+
+/* =================== */
 
 /* ===== 头部内容 ===== */
 .header-content {

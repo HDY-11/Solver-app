@@ -7,10 +7,14 @@ import { info } from '@tauri-apps/plugin-log';
 
 interface EditorPageProps {
     defaultLanguage: string;
+    theme?:string;
+    display:Boolean;
 }
 
 const EditorPage: React.FC<EditorPageProps> = ({
-    defaultLanguage = 'python'
+    defaultLanguage = 'python',
+    theme,
+    display
 }) => {
     const [code, setCode] = useState<string>('');
     const [path, setPath] = useState<string | null>(null);
@@ -70,7 +74,7 @@ const EditorPage: React.FC<EditorPageProps> = ({
     // 构建工具栏内容，包含按钮组和文件路径显示
     const toolbarContent = useMemo(() => (
         <>
-            <div className="bar-actions">
+            <div className="bar-actions" style={{display: display ? undefined : 'none'}}>
                 <button className="btn btn-sm" onClick={handleLoad}>
                     📂 加载
                 </button>
@@ -82,17 +86,17 @@ const EditorPage: React.FC<EditorPageProps> = ({
                 </button>
             </div>
             {path && (
-                <span className="current-file" title={path}>
+                <span className="current-file" title={path} style={{display: display ? undefined : 'none'}}>
                     {path}
                 </span>
             )}
         </>
-    ), [path, code]);
+    ), [path, code, display]);
 
     useBarContent(toolbarContent);
 
     return (
-        <div className="page-container" style={{ padding: 0, overflow: 'hidden' }}>
+        <div className="page-container" style={{ padding: 0, overflow: 'hidden', display: display? undefined : 'none' }}>
             <Editor
                 height="50%"
                 defaultLanguage={defaultLanguage}
