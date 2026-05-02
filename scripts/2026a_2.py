@@ -7,26 +7,17 @@ import statsmodels.api as sm
 import warnings
 warnings.filterwarnings('ignore')
 
-# ============================================================
-# 0. 读取数据
-# ============================================================
 df = pd.read_csv(r"C:\Users\24070\Desktop\Cement_ESP_Data.csv")
-# 确保时间戳列存在，但不用于聚类
 df = df.dropna(subset=['C_in_gNm3', 'Temp_C', 'Q_Nm3h',
                         'U1_kV','U2_kV','U3_kV','U4_kV',
                         'T1_s','T2_s','T3_s','T4_s',
                         'P_total_kW'])
-
-# ============================================================
 # 1. 工况划分：基于 C_in 和 Temp 的 K-means
-# ============================================================
 cluster_vars = ['C_in_gNm3', 'Temp_C']
 X = df[cluster_vars].values
-
-# 标准化（K-means 需要）
+# 标准化
 scaler = StandardScaler()
 X_scaled = scaler.fit_transform(X)
-
 # 确定聚类数：尝试 3,4,5，选轮廓系数最大的
 from sklearn.metrics import silhouette_score
 best_k = 4
@@ -38,61 +29,44 @@ for k in [3,4,5]:
     if score > best_score:
         best_score = score
         best_k = k
-
 # 最终聚类
 kmeans = KMeans(n_clusters=best_k, random_state=42, n_init=10)
 df['工况'] = kmeans.fit_predict(X_scaled)
-
 # 计算每个工况的 C_in 和 Q 的中位数（用于优化）
 工况代表值 = df.groupby('工况').agg(
     C_in_median=('C_in_gNm3', 'median'),
     Q_median=('Q_Nm3h', 'median'),
     Temp_median=('Temp_C', 'median')
 ).reset_index()
-
-# ============================================================
 # 2. 电耗预测模型 P_total = f(U1,U2,U3,U4, T1,T2,T3,T4)
-# ============================================================
 # 准备自变量：尝试线性项和平方项
 U_vars = ['U1_kV','U2_kV','U3_kV','U4_kV']
 T_vars = ['T1_s','T2_s','T3_s','T4_s']
-
 # 线性项
 X_lin = df[U_vars + T_vars].copy()
 # 平方项（电压平方，振打周期取对数？这里保守一点也用平方项）
 for v in U_vars:
     X_lin[f'{v}_sq'] = df[v] ** 2
 # 注意：也可以加 T 的平方，但物理意义不强，先不加
-
 # 添加常数项
 X_lin = sm.add_constant(X_lin)
 y = df['P_total_kW']
-
 # 用 OLS 拟合全模型
 model_lin = sm.OLS(y, X_lin).fit()
-
-# 简化模型：用逐步选择（AIC 最小）——这里用后向消除
-# 为稳健，保留所有主效应，若高 VIF 再处理
 # 我们直接使用全模型的预测，因为预测能力强即可
 P_model = model_lin
-
 # 提取参数：用于优化目标函数
 coeffs = P_model.params
 intercept = coeffs['const']
 # 构建系数字典，方便按变量名取值
 coef_dict = coeffs.to_dict()
-
 print(f"电耗模型 R² = {P_model.rsquared:.4f}")
-
-# ============================================================
-# 3. 物理模型常数（来自第一问，排除50.00那版的结果）
-# ============================================================
+# 3. 物理模型常数（来自第一问，排除50.00后的结果）
 alpha = 6.327
 K = np.array([79.636, 50.315, 132.613, 166.583])   # K1..K4
 gamma = np.array([0.00460, 0.00582, 0.00165, 0.00172])  # γ1..γ4
 b_coef = -0.366, -0.293, -0.219, -0.286   # 用于 U^2 T / Q 项的系数 b_i（负值）
 a_coef = 79.636, 50.315, 132.613, 166.583  # U^2/Q 项系数
-
 def c_out_pred(U, T, C_in, Q):
     """预测出口浓度 (mg/Nm3)，U 和 T 为长度为4的数组"""
     U = np.array(U)
@@ -100,16 +74,13 @@ def c_out_pred(U, T, C_in, Q):
     # 计算对数效率 Y_target
     Y = alpha + np.sum(a_coef * U**2 / Q) + np.sum(b_coef * U**2 * T / Q)
     return C_in * 1000 / np.exp(Y)
-
-# ============================================================
 # 4. 定义优化问题
-# ============================================================
 # 参数边界：从数据中获取
 bounds_list = []
 for col in ['U1_kV','U2_kV','U3_kV','U4_kV']:
     bounds_list.append((df[col].min(), df[col].max()))
 for col in ['T1_s','T2_s','T3_s','T4_s']:
-    bounds_list.append((max(60, df[col].min()), df[col].max()))  # 振打周期不低于60秒
+    bounds_list.append((max(210, df[col].min()), df[col].max()))
 
 bounds = Bounds([b[0] for b in bounds_list], [b[1] for b in bounds_list])
 

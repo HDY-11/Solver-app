@@ -1,8 +1,13 @@
 // src/pages/ViewsPage.tsx
 import React, { useEffect, useState } from 'react';
 import { listen, UnlistenFn } from '@tauri-apps/api/event';
+<<<<<<< HEAD
 import ResultHistoryItem from '../components/ResultHistoryItem.tsx';
 import ResultDetail from '../components/ResultDetail.tsx';
+=======
+import ResultHistoryItem from '../components/ResultHistoryItem';
+import ResultDetail from '../components/ResultDetail';
+>>>>>>> 738041c (0.2.05)
 import { ScriptResultPayload } from '../types';
 
 interface ViewsPageProps {

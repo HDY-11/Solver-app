@@ -40,7 +40,7 @@ def power_pred(U, T):
             sum(coef[k] * sq_dict[k] for k in sq_dict))
 
 
-# ====================== PSO 核心（来自你的框架，已改写） ======================
+# ====================== PSO 核心 ======================
 def pso_optimize(bounds, C_in, Q, n_particles=80, max_iter=200,
                  stagnant_limit=50, penalty_weight=500.0):
     """
@@ -150,15 +150,15 @@ def main():
         Q=('Q_Nm3h', 'median')
     )
 
-    # 参数边界（从全数据提取，保证覆盖）
-    bounds = [(df['U1_kV'].min(), df['U1_kV'].max()),
-              (df['U2_kV'].min(), df['U2_kV'].max()),
-              (df['U3_kV'].min(), df['U3_kV'].max()),
-              (df['U4_kV'].min(), df['U4_kV'].max()),
-              (60.0, df['T1_s'].max()),    # T下限60秒
-              (60.0, df['T2_s'].max()),
-              (60.0, df['T3_s'].max()),
-              (60.0, df['T4_s'].max())]
+    # 参数边界（工程边界）
+    bounds = [(40.0, 72.0),
+              (40.0, 72.0),
+              (40.0, 72.0),
+              (40.0, 72.0),
+              (210.0, df['T1_s'].max()),    # T下限210秒
+              (210.0, df['T2_s'].max()),
+              (210.0, df['T3_s'].max()),
+              (210.0, df['T4_s'].max())]
 
     results = []
     for _, row in 工况值.iterrows():
@@ -246,14 +246,14 @@ def validate_optimization():
         Q=('Q_Nm3h', 'median')
     )
     
-    bounds_list = [(df['U1_kV'].min(), df['U1_kV'].max()),
-                   (df['U2_kV'].min(), df['U2_kV'].max()),
-                   (df['U3_kV'].min(), df['U3_kV'].max()),
-                   (df['U4_kV'].min(), df['U4_kV'].max()),
-                   (60.0, df['T1_s'].max()),
-                   (60.0, df['T2_s'].max()),
-                   (60.0, df['T3_s'].max()),
-                   (60.0, df['T4_s'].max())]
+    bounds_list = [(40.0, 72.0),
+                   (40.0, 72.0),
+                   (40.0, 72.0),
+                   (40.0, 72.0),
+                   (210.0, df['T1_s'].max()),
+                   (210.0, df['T2_s'].max()),
+                   (210.0, df['T3_s'].max()),
+                   (210.0, df['T4_s'].max())]
     
     print("="*80)
     print("验证报告：PSO求解可靠性分析")
