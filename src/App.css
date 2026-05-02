@@ -41,7 +41,7 @@ html, body, #root {
   grid-template-columns: 1fr 2fr;
   grid-template-rows: 3fr 1fr;
   gap: var(--space-1);
-  grid-template-areas: 
+  grid-template-areas:
     "mid big"
     "min big";
   height: 100%;
@@ -49,7 +49,101 @@ html, body, #root {
   background: var(--gray-50);
   overflow: hidden;
 }
+/* ===== 视图页：结果展示 ===== */
+.result-list {
+  grid-area: min; /* 使用你定义的 min 区域，如需左右布局请调整 */
+  background: var(--gray-0);
+  border-right: 1px solid var(--gray-200);
+  overflow-y: auto;
+  padding: var(--space-4) 0;
+}
 
+.result-list__title {
+  padding: 0 var(--space-4) var(--space-3);
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--gray-500);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.result-list__empty {
+  padding: 0 var(--space-4);
+  color: var(--gray-400);
+  font-size: 0.875rem;
+}
+
+.result-list__items {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.result-history-item {
+  padding: var(--space-2) var(--space-4);
+  cursor: pointer;
+  font-size: 0.8125rem;
+  font-family: var(--font-mono);
+  color: var(--gray-700);
+  border-bottom: 1px solid var(--gray-100);
+  transition: background var(--transition-fast);
+}
+
+.result-history-item:hover {
+  background: var(--gray-50);
+}
+
+.result-history-item.active {
+  background: var(--primary-bg);
+  color: var(--primary);
+  font-weight: 500;
+}
+
+.result-content {
+  grid-area: big; /* 主显示区域 */
+  overflow-y: auto;
+  padding: var(--space-6);
+  background: var(--gray-0);
+}
+
+.result-detail__path {
+  margin-bottom: var(--space-3);
+  color: var(--gray-800);
+  font-size: 0.9375rem;
+  border-bottom: 1px solid var(--gray-200);
+  padding-bottom: var(--space-2);
+}
+
+.result-detail__stdout,
+.result-detail__stderr {
+  padding: var(--space-4);
+  border-radius: var(--radius-md);
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  margin-bottom: var(--space-4);
+}
+
+.result-detail__stdout {
+  background: var(--gray-50);
+  border: 1px solid var(--gray-200);
+}
+
+.result-detail__stderr {
+  background: #fff0f0;
+  border: 1px solid #fdd;
+  color: var(--danger);
+}
+
+.result-content__placeholder {
+  color: var(--gray-400);
+  font-size: 0.9375rem;
+  text-align: center;
+  margin-top: var(--space-8);
+}
 /* ===== 网格区域分配 ===== 
           主网格区域
 */

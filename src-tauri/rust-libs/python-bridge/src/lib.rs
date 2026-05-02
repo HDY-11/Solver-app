@@ -85,62 +85,41 @@ pub fn init_python_venv(py: Python) -> PyResult<()> {
     Ok(())
 }
 
-pub async fn run_script(script_path: String) -> Result<String, PyErr> {
-    let result = spawn_blocking(move || -> PyResult<String> {
+pub async fn run_script(script_path: &str) -> PyResult<(String, String)> {
+    let script_path = script_path.to_owned();
+    let result = spawn_blocking(move || -> PyResult<(String, String)> {
         Python::attach(|py| {
             init_python_venv(py)?;
 
-            let script_content = fs::read_to_string(&script_path)
-                .inspect_log(format!("读取脚本文件: {}", script_path))?;
+            let script_content = std::fs::read_to_string(&script_path)
+                .map_err(|e| PyErr::new::<PyRuntimeError, _>(e.to_string()))?;
+            let script_content = CString::new(script_content).expect_log("转换成CString失败");
+            let sys = py.import("sys")?;
+            let io = py.import("io")?;
 
-            let script_cstr = CString::new(script_content).inspect_log("脚本内容包含空字节")?;
+            let stdout = io.call_method0("StringIO")?;
+            let stderr = io.call_method0("StringIO")?;
 
-            let sys = py.import("sys").inspect_log("导入 sys 模块失败")?;
-            let io = py.import("io").inspect_log("导入 io 模块失败")?;
+            let old_stdout = sys.getattr("stdout")?;
+            let old_stderr = sys.getattr("stderr")?;
 
-            let stdout = io
-                .call_method0("StringIO")
-                .inspect_log("创建 StringIO (stdout) 失败")?;
-            let stderr = io
-                .call_method0("StringIO")
-                .inspect_log("创建 StringIO (stderr) 失败")?;
+            sys.setattr("stdout", &stdout)?;
+            sys.setattr("stderr", &stderr)?;
 
-            let old_stdout = sys.getattr("stdout").inspect_log("获取原 stdout 失败")?;
-            let old_stderr = sys.getattr("stderr").inspect_log("获取原 stderr 失败")?;
+            let _ = py.run(&script_content, None, None);
 
-            sys.setattr("stdout", &stdout)
-                .inspect_log("重定向 stdout 失败")?;
-            sys.setattr("stderr", &stderr)
-                .inspect_log("重定向 stderr 失败")?;
-
-            let run_result = py.run(&script_cstr, None, None);
-
-            let stdout_str = stdout
-                .call_method0("getvalue")
-                .inspect_log("获取 stdout 内容失败")?
-                .extract()
-                .inspect_log("解析 stdout 内容失败")?;
-            let stderr_str: String = stderr
-                .call_method0("getvalue")
-                .inspect_log("获取 stderr 内容失败")?
-                .extract()
-                .inspect_log("解析 stderr 内容失败")?;
-
-            // 恢复原 stdout/stderr，忽略错误（尽力而为）
             let _ = sys.setattr("stdout", old_stdout);
             let _ = sys.setattr("stderr", old_stderr);
 
-            match run_result {
-                Ok(_) => Ok(stdout_str),
-                Err(e) => {
-                    let msg = format!("{}\n{}", stderr_str, e);
-                    Err(PyRuntimeError::new_err(msg))
-                }
-            }
+            let stdout_str: String = stdout.call_method0("getvalue")?.extract()?;
+            let stderr_str: String = stderr.call_method0("getvalue")?.extract()?;
+
+            Ok((stdout_str, stderr_str))
         })
     })
     .await
-    .expect_log("py脚本运行失败");
+    .map_err(|e| PyErr::new::<PyRuntimeError, _>(e.to_string()))?;
+    
     result
 }
 

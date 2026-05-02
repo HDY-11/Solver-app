@@ -100,7 +100,7 @@ const EditorPage: React.FC<EditorPageProps> = ({
     return (
         <div className="page-container" style={{ padding: 0, overflow: 'hidden', display: display? undefined : 'none' }}>
             <Editor
-                height="50%"
+                height="100%"
                 defaultLanguage={defaultLanguage}
                 value={code}
                 onChange={handleEditorChange}
@@ -114,7 +114,7 @@ const EditorPage: React.FC<EditorPageProps> = ({
                     automaticLayout: true,
                 }}
             />
-            <div>{result}</div>
+
         </div>
     );
 };

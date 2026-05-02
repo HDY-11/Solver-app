@@ -48,10 +48,11 @@ mod message;
 mod worker;
 
 pub use handle::{LogCtrl, LogHandle};
-pub use logger::{GLOBAL_LOGGER, Logger};
+pub use logger::{Logger};
 pub use message::LogMessage;
 
 use std::path::PathBuf;
+use logger::GLOBAL_LOGGER;
 
 /// 初始化日志系统。
 ///

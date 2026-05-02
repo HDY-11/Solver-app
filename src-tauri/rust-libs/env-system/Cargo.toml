@@ -1,0 +1,14 @@
+[package]
+name = "env-system"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "env_system"
+crate-type = ["lib", "cdylib"]
+
+[dependencies]
+camino = "1.2.2"
+utils = { version = "0.1.0", path = "../utils" }
+tempfile = "3.27.0"
+chrono ={ workspace = true}

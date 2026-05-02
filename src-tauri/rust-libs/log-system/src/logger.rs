@@ -9,7 +9,7 @@ use crate::message::LogMessage;
 use crate::worker::{ControlCommand, LogWorker};
 
 /// 全局 [`Logger`] 实例，用于注册到 `log` crate。
-pub static GLOBAL_LOGGER: OnceCell<Logger> = OnceCell::new();
+pub(crate) static GLOBAL_LOGGER: OnceCell<Logger> = OnceCell::new();
 
 /// 实现 `log::Log` trait，将日志消息转发到低优先级通道。
 pub struct Logger {

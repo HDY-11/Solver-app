@@ -2742,6 +2742,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "env-system"
+version = "0.1.0"
+dependencies = [
+ "camino",
+ "chrono",
+ "tempfile",
+ "utils",
+]
+
+[[package]]
 name = "env_filter"
 version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2828,6 +2838,19 @@ checksum = "8be9f3dfaaffdae2972880079a491a1a8bb7cbed0b8dd7a347f668b4150a3b93"
 dependencies = [
  "event-listener",
  "pin-project-lite",
+]
+
+[[package]]
+name = "event-system"
+version = "0.1.0"
+dependencies = [
+ "crossbeam-channel",
+ "error-system",
+ "log",
+ "once_cell",
+ "serde",
+ "serde_json",
+ "tauri",
 ]
 
 [[package]]
@@ -4806,6 +4829,7 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "crossbeam-channel",
+ "env-system",
  "log",
  "once_cell",
  "tempfile",
@@ -7822,15 +7846,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "sol_evt_mgr"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
- "tauri",
-]
-
-[[package]]
 name = "solver"
 version = "0.2.0"
 dependencies = [
@@ -7838,7 +7853,9 @@ dependencies = [
  "burn",
  "chrono",
  "crossbeam-channel",
+ "dirs",
  "error-system",
+ "event-system",
  "log",
  "log-system",
  "nalgebra",
@@ -7858,6 +7875,7 @@ dependencies = [
  "tauri-plugin-opener",
  "thiserror 2.0.18",
  "tokio",
+ "utils",
  "windows 0.62.2",
 ]
 

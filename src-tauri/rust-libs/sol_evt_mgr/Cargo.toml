@@ -1,9 +1,0 @@
-[package]
-name = "sol_evt_mgr"
-version = "0.1.0"
-edition = "2024"
-
-[dependencies]
-tauri = { workspace = true }
-serde_json ={ workspace = true}
-serde ={ workspace = true}

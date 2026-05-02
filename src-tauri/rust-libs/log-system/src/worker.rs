@@ -1,7 +1,9 @@
-use crossbeam_channel::{Receiver, TryRecvError, select};
-use std::fs::File;
-use std::io::{BufWriter, Seek, Write};
+use crossbeam_channel::{Receiver, select};
+use std::io::Result as IoResult;
+use std::io::Write;
 use std::path::PathBuf;
+
+use env_system::{RotatingLogFile};
 
 use crate::message::LogMessage;
 
@@ -28,8 +30,8 @@ pub struct LogWorker {
     low_rx: Receiver<LogMessage>,
     ctrl_rx: Receiver<ControlCommand>,
 
-    high_writer: BufWriter<File>,
-    low_writer: BufWriter<File>,
+    high_file: RotatingLogFile,
+    low_file: RotatingLogFile,
 
     /// 低优先级通道的高水位阈值（90% 容量）。
     high_watermark: usize,
@@ -60,30 +62,8 @@ impl LogWorker {
             std::fs::create_dir_all(parent)?;
         }
 
-        let high_file = File::create(&high_log_path).map_err(|e| {
-            std::io::Error::new(
-                e.kind(),
-                format!(
-                    "创建高优先级日志文件失败: {}: {}",
-                    high_log_path.display(),
-                    e
-                ),
-            )
-        })?;
-        let low_file = File::create(&low_log_path).map_err(|e| {
-            std::io::Error::new(
-                e.kind(),
-                format!(
-                    "创建低优先级日志文件失败: {}: {}",
-                    low_log_path.display(),
-                    e
-                ),
-            )
-        })?;
-
-        // 使用 8KB 缓冲区，平衡内存占用与系统调用次数
-        let high_writer = BufWriter::with_capacity(8192, high_file);
-        let low_writer = BufWriter::with_capacity(8192, low_file);
+        let high_file = RotatingLogFile::new(&high_log_path, 5, 8192)?;
+        let low_file = RotatingLogFile::new(&low_log_path, 5, 8192)?;
 
         // 水位：容量 90% 触发排空，排至 70% 停止
         let high_watermark = low_capacity * 90 / 100;
@@ -93,8 +73,8 @@ impl LogWorker {
             high_rx,
             low_rx,
             ctrl_rx,
-            high_writer,
-            low_writer,
+            high_file,
+            low_file,
             high_watermark,
             low_watermark,
         })
@@ -144,7 +124,7 @@ impl LogWorker {
                     match cmd {
                         Ok(ControlCommand::FlushHigh) => {
                             eprintln!("[LogWorker-{:?}] 收到 FlushHigh", thread_id);
-                            if let Err(e) = self.high_writer.flush() {
+                            if let Err(e) = self.high_file.lend_writer().flush() {
                                 eprintln!("[LogWorker-{:?}] FlushHigh 失败: {}", thread_id, e);
                             }
                         }
@@ -157,8 +137,8 @@ impl LogWorker {
                         Ok(ControlCommand::EmergencyFlushLow(tx)) => {
                             eprintln!("[LogWorker-{:?}] 收到 EmergencyFlushLow", thread_id);
                             self.drain_low_all();
-                            let _ = self.low_writer.flush();
-                            let _ = self.low_writer.get_ref().sync_all();
+                            let _ = self.low_file.lend_writer().flush();
+                            let _ = self.low_file.lend_writer().get_ref().sync_all();
                             let _ = tx.send(());
                             eprintln!("[LogWorker-{:?}] EmergencyFlushLow 完成", thread_id);
                         }
@@ -186,22 +166,22 @@ impl LogWorker {
 
         // 刷盘
         eprintln!("[LogWorker-{:?}] 刷新高优先级...", thread_id);
-        match self.high_writer.flush() {
+        match self.high_file.lend_writer().flush() {
             Ok(_) => eprintln!("[LogWorker-{:?}] 高优先级 flush 成功", thread_id),
             Err(e) => eprintln!("[LogWorker-{:?}] 高优先级 flush 失败: {}", thread_id, e),
         }
 
         eprintln!("[LogWorker-{:?}] 刷新低优先级...", thread_id);
-        match self.low_writer.flush() {
+        match self.low_file.lend_writer().flush() {
             Ok(_) => eprintln!("[LogWorker-{:?}] 低优先级 flush 成功", thread_id),
             Err(e) => eprintln!("[LogWorker-{:?}] 低优先级 flush 失败: {}", thread_id, e),
         }
 
         // 同步到磁盘
         eprintln!("[LogWorker-{:?}] 同步高优先级到磁盘...", thread_id);
-        let _ = self.high_writer.get_ref().sync_all();
+        let _ = self.high_file.lend_writer().get_ref().sync_all();
         eprintln!("[LogWorker-{:?}] 同步低优先级到磁盘...", thread_id);
-        let _ = self.low_writer.get_ref().sync_all();
+        let _ = self.low_file.lend_writer().get_ref().sync_all();
 
         eprintln!("[LogWorker-{:?}] 线程退出", thread_id);
     }
@@ -238,25 +218,21 @@ impl LogWorker {
         }
     }
 
-    /// 清空高优先级日志文件。
-    ///
-    /// 流程：刷新缓冲区 → 截断文件 → 同步元数据 → 重建 `BufWriter`。
-    /// 此操作在后台线程内执行，与高优先级写入串行，无并发竞争。
-    fn clear_high_file(&mut self) -> std::io::Result<()> {
-        self.high_writer.flush()?;
-        let mut file = self.high_writer.get_ref();
-        file.set_len(0)?;
-        file.seek(std::io::SeekFrom::Start(0))?; // 重置文件偏移
-        file.sync_all()?;
-        self.high_writer = BufWriter::with_capacity(8192, file.try_clone()?);
-        Ok(())
+    fn clear_high_file(&mut self) -> IoResult<()> {
+        self.high_file.clear()
     }
 
-    fn write_high(&mut self, msg: &LogMessage) -> std::io::Result<()> {
-        writeln!(self.high_writer, "{}", msg.formatted())
+    fn write_high(&mut self, msg: &LogMessage) -> IoResult<()> {
+        let mut guard = self.high_file.split();
+        guard.writeln(&msg.formatted())
     }
 
-    fn write_low(&mut self, msg: &LogMessage) -> std::io::Result<()> {
-        writeln!(self.low_writer, "{}", msg.formatted())
+    fn write_low(&mut self, msg: &LogMessage) -> IoResult<()> {
+        let mut guard = self.low_file.split();
+        guard.writeln(&msg.formatted())
+    }
+
+    fn handle_save_high_as(&mut self, name: String) -> IoResult<()> {
+        self.high_file.save_as(name)
     }
 }

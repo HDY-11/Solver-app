@@ -1,5 +1,6 @@
 [workspace]
-members = ["rust-libs/error-system", "rust-libs/log-system", "rust-libs/python-bridge", "rust-libs/utils",'rust-libs/simple_motion', "rupy-libs/shape3", "rust-libs/sol_evt_mgr"]
+members = ["rust-libs/error-system", "rust-libs/log-system", "rust-libs/python-bridge", "rust-libs/utils",'rust-libs/simple_motion', "rupy-libs/shape3", "rust-libs/event-system", "rust-libs/env-system"]
+
 
 [package]
 name = "solver"
@@ -55,6 +56,9 @@ error-system = { path = "rust-libs/error-system" }
 log-system = { path = "rust-libs/log-system" }
 tauri-plugin-log = "2"
 numpy = "0.28.0"
+event-system = { version = "0.1.0", path = "rust-libs/event-system" }
+utils = { version = "0.1.0", path = "rust-libs/utils"}
+dirs = "6.0.0"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

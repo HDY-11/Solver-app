@@ -9,3 +9,10 @@ export interface Page {
   details?: string;
   popoverContent?: React.ReactNode;
 }
+
+
+export interface ScriptResultPayload {
+  path: string;
+  stdout: string;
+  stderr: string;
+}

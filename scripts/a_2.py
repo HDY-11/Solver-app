@@ -258,7 +258,7 @@ def main_2():
     问题2：利用 FY1 投放 1 枚烟幕干扰弹，寻找最优的四元组参数
     (theta, v, t_d, delta_t) 使有效遮蔽时长最大。
     """
-    '''
+
     # 决策变量边界
     bounds = [(0.0, 2 * np.pi), (70.0, 140.0), (0.0, 60.0), (0.0, 30.0)]
 
@@ -273,10 +273,9 @@ def main_2():
         stagnant_limit=60,
         seed_points=seed_points
     )
-    '''
-    best_params = [3.112e+00,1.076e+02,3.410e-02,3.071e+00]
+
     theta, v, t_d, delta_t = best_params
-    best_time = 4.560
+
     print("\n========== 最优结果 ==========")
     print(f"航向角 theta   = {np.degrees(theta):.2f}° (弧度 {theta:.4f})")
     print(f"飞行速度 v      = {v:.2f} m/s")

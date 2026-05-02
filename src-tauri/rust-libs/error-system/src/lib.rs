@@ -18,7 +18,7 @@
 
 use std::path::PathBuf;
 use thiserror::Error;
-
+use std::sync::PoisonError;
 /// 自定义错误类型
 ///
 /// # 扩展点
@@ -37,6 +37,9 @@ pub enum AppError {
     #[error("Log system not initialized")]
     LogNotInitialized,
 
+    #[error("Event system not initialized")]
+    EventNotInitialized,
+
     #[error("Python error: {0}")]
     Python(#[from] pyo3::PyErr),
 
@@ -51,12 +54,18 @@ pub enum AppError {
 
     #[error("Blocking task join error: {0}")]
     JoinError(String),
+
+    #[error("Mutex poisoned: {0}")]
+    PoisonError(String)
 }
 
 impl AppError {
     /// 从 CastError 创建 AppError
     pub fn from_cast_error(e: &pyo3::CastError<'_, '_>) -> Self {
         AppError::PythonCast(e.to_string())
+    }
+    pub fn from_poison_error<T>(e: PoisonError<T>) -> Self {
+        AppError::PoisonError(e.to_string())
     }
 }
 
