@@ -7,18 +7,15 @@ import { info, warn, error } from '@tauri-apps/plugin-log';
 
 interface EditorPageProps {
     defaultLanguage: string;
-    theme?:string;
     display:Boolean;
 }
 
 const EditorPage: React.FC<EditorPageProps> = ({
     defaultLanguage = 'python',
-    theme,
     display
 }) => {
     const [code, setCode] = useState<string>('');
     const [path, setPath] = useState<string | null>(null);
-    const [result, setResult] = useState<string | null>(null);
 
     const handleEditorChange = (value: string | undefined) => {
         setCode(value || '');
@@ -65,9 +62,7 @@ const EditorPage: React.FC<EditorPageProps> = ({
             return;
         }
         try {
-            const result = await invoke<string>('run_script', { path });
-            alert(`执行成功:\n${result}`);
-            setResult(result);
+            await invoke<string>('run_script', { path });
         } catch (error) {
             alert(`执行失败:\n${error}`);
         }
