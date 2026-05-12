@@ -1,65 +1,22 @@
-use error_system::AppError;
 use error_system::ResultLogExt;
+use env_system::paths::{exe_root, embedded_site_packages};
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::exceptions::*;
 use pyo3::prelude::*;
 use pyo3::types::PyList;
-use std::env::current_exe;
-use std::env::set_var;
 use std::ffi::CString;
 use std::fs;
 use std::io::{Error as IoError, ErrorKind, Result as IoResult};
 use std::path::{Path, PathBuf};
 use tokio::task::spawn_blocking;
 
-// ==================== 路径获取 ====================
-
-pub fn get_resource_root() -> PathBuf {
-    let exe_dir = current_exe()
-        .expect("无法获取可执行文件所在路径")
-        .parent()
-        .expect("无法获取可执行文件所在目录")
-        .to_path_buf();
-
-    #[cfg(debug_assertions)]
-    {
-        let mut root = exe_dir.clone();
-        while !root.join("src-tauri").exists() {
-            root = root.parent().expect("无法找到项目根目录").to_path_buf();
-        }
-        root
-    }
-
-    #[cfg(not(debug_assertions))]
-    {
-        exe_dir
-    }
-}
-
-pub fn get_python_home_path() -> PathBuf {
-    get_resource_root().join("Python")
-}
-
+// ==================== (临时)路径获取 ====================
 pub fn get_scripts_path() -> PathBuf {
-    get_resource_root().join("scripts")
-}
-
-pub fn get_site_packages_path() -> PathBuf {
-    get_python_home_path().join("Lib").join("site-packages")
+    exe_root().join("scripts")
 }
 
 pub fn init_python_venv(py: Python) -> PyResult<()> {
-    #[cfg(not(debug_assertions))]
-    unsafe {
-        let python_home = get_python_home_path();
-        let python_home_str = python_home
-            .to_str()
-            .ok_or_else(|| PyValueError::new_err("python 路径包含非 UTF-8 字符"))
-            .inspect_log("解析 PYTHONHOME 路径失败")?;
-        set_var("PYTHONHOME", python_home_str);
-    }
-
-    let site_packages = get_site_packages_path();
+    let site_packages = embedded_site_packages();
     let scripts_path = get_scripts_path();
 
     let sys = py.import("sys").inspect_log("导入 sys 模块失败")?;

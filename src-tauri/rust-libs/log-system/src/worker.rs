@@ -3,7 +3,7 @@ use std::io::Result as IoResult;
 use std::io::Write;
 use std::path::PathBuf;
 
-use env_system::{RotatingLogFile};
+use crate::rotating_file::{RotatingLogFile};
 
 use crate::message::LogMessage;
 

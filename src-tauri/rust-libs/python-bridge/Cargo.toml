@@ -13,3 +13,4 @@ tokio = { workspace = true }
 utils = { version = "0.1.0", path = "../utils" }
 error-system = { version = "0.1.0", path = "../error-system" }
 anyhow ={ workspace = true}
+env-system = { version = "0.1.0", path = "../env-system" }

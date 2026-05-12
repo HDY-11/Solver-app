@@ -46,7 +46,7 @@ mod handle;
 mod logger;
 mod message;
 mod worker;
-
+mod rotating_file;
 pub use handle::{LogCtrl, LogHandle};
 pub use logger::{Logger};
 pub use message::LogMessage;
