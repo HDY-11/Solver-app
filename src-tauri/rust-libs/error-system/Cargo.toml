@@ -11,5 +11,6 @@ crate-type = ["lib", "cdylib"]
 thiserror = { workspace = true }
 anyhow = { workspace = true }
 log = { workspace = true }
-pyo3 ={ workspace = true}
-tokio ={ workspace = true}
+pyo3 = { workspace = true}
+tokio = { workspace = true}
+tauri = { workspace = true}

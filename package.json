@@ -19,6 +19,7 @@
     "monaco-pyright-lsp": "^0.1.7",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
+    "react-router-dom": "^7.15.1",
     "tauri-plugin-python-api": "^0.3.4"
   },
   "devDependencies": {

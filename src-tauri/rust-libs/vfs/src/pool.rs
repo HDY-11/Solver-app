@@ -22,12 +22,17 @@ impl DataFilePool {
     /// 打开或创建 BlobStore 文件。
     pub fn open(path: &Path, capacity: usize, max_size: u64) -> io::Result<Self> {
         let path = path.to_path_buf();
+        log::info!("[DataFilePool] open: path='{}', capacity={}, max_size={}MB", 
+            path.display(), capacity, max_size / 1024 / 1024);
         
         // 确保父目录存在
         if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)?;
+            log::debug!("[DataFilePool]   确保父目录存在: '{}'", parent.display());
+            std::fs::create_dir_all(parent)
+                .inspect_log(format!("创建 BlobStore 目录失败: {}", parent.display()))?;
         }
 
+        log::debug!("[DataFilePool]   打开文件 (create=true, read=true, write=true)...");
         let file = OpenOptions::new()
             .read(true)
             .write(true)
@@ -39,23 +44,24 @@ impl DataFilePool {
             .inspect_log("获取 BlobStore 文件元数据失败")?
             .len();
 
+        log::debug!("[DataFilePool]   文件已打开, 当前大小: {} bytes", current_size);
+
         let mut slots = Vec::with_capacity(capacity);
         for i in 0..capacity {
-            let dup = if i == 0 {
-                file.try_clone()
-                    .inspect_log("复制文件描述符失败")?
-            } else {
-                file.try_clone()
-                    .inspect_log("复制文件描述符失败")?
-            };
+            log::trace!("[DataFilePool]   创建句柄副本 {}/{}", i + 1, capacity);
+            let dup = file.try_clone()
+                .inspect_log(format!("复制文件描述符失败 (副本 {}/{})", i + 1, capacity))?;
             slots.push(Slot::new(dup));
         }
 
+        log::debug!("[DataFilePool]   句柄池已创建: {} 个槽位", slots.len());
+
         log::info!(
-            "BlobStore 卷已打开: {} (容量: {} MB, 当前: {} bytes)",
+            "[DataFilePool] BlobStore 卷已打开: {} (容量: {} MB, 当前: {} bytes, 句柄池: {})",
             path.display(),
             max_size / 1024 / 1024,
-            current_size
+            current_size,
+            slots.len()
         );
 
         Ok(Self {
@@ -72,8 +78,13 @@ impl DataFilePool {
         let offset = self.current_offset.fetch_add(size as u64, Ordering::SeqCst);
         let new_pos = offset + size as u64;
         
+        log::trace!("[DataFilePool] alloc: size={}, offset={}, new_pos={}, max={}", 
+            size, offset, new_pos, self.max_size);
+        
         if new_pos > self.max_size {
             // 回退偏移量（尽力而为）
+            log::warn!("[DataFilePool] alloc: 卷容量不足! 需要={}, 当前偏移量={}, 最大={}MB",
+                size, offset, self.max_size / 1024 / 1024);
             self.current_offset.store(offset, Ordering::SeqCst);
             return Err(io::Error::new(
                 io::ErrorKind::OutOfMemory,
@@ -91,12 +102,15 @@ impl DataFilePool {
 
     /// 借出一个文件句柄。
     pub fn acquire(&self) -> Lease<File> {
+        log::trace!("[DataFilePool] acquire: 尝试借出句柄...");
         loop {
-            for slot in &self.slots {
+            for (i, slot) in self.slots.iter().enumerate() {
                 if let Some(lease) = slot.try_lease() {
+                    log::trace!("[DataFilePool] acquire: 借出槽位 {}", i);
                     return lease;
                 }
             }
+            log::trace!("[DataFilePool] acquire: 所有槽位被占用，自旋等待...");
             std::hint::spin_loop();
         }
     }
@@ -105,6 +119,8 @@ impl DataFilePool {
     ///
     /// 使用 pwrite，不同偏移量的写入由内核保证并发安全。
     pub fn write_at(&self, lease: &Lease<File>, offset: u64, data: &[u8]) -> io::Result<()> {
+        log::trace!("[DataFilePool] write_at: offset={}, len={}", offset, data.len());
+
         #[cfg(unix)]
         {
             use std::os::unix::fs::FileExt;
@@ -119,6 +135,8 @@ impl DataFilePool {
 
     /// 从指定偏移量读取数据。
     pub fn read_at(&self, lease: &Lease<File>, offset: u64, buf: &mut [u8]) -> io::Result<usize> {
+        log::trace!("[DataFilePool] read_at: offset={}, buf_len={}", offset, buf.len());
+
         #[cfg(unix)]
         {
             use std::os::unix::fs::FileExt;

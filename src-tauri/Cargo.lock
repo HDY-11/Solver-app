@@ -1137,6 +1137,7 @@ dependencies = [
  "anyhow",
  "log",
  "pyo3",
+ "tauri",
  "thiserror 2.0.18",
  "tokio",
 ]
@@ -2429,6 +2430,7 @@ version = "0.37.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b1f111c8c41e7c61a49cd34e44c7619462967221a6443b0ec299e0ac30cfb9b1"
 dependencies = [
+ "cc",
  "pkg-config",
  "vcpkg",
 ]
@@ -4472,6 +4474,7 @@ dependencies = [
  "crossbeam-channel",
  "dashmap",
  "dirs",
+ "env-system",
  "error-system",
  "event-system",
  "hex",
@@ -4487,6 +4490,7 @@ dependencies = [
  "r2d2",
  "r2d2_sqlite",
  "rand 0.8.5",
+ "rusqlite",
  "serde",
  "serde_json",
  "sha2 0.11.0",

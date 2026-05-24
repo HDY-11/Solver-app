@@ -17,6 +17,7 @@
 //! | `expect_warn_log(msg)` | 错误时记录 warn，然后 panic | `T` |
 
 use std::path::PathBuf;
+use anyhow::Error;
 use thiserror::Error;
 use std::sync::PoisonError;
 /// 自定义错误类型
@@ -56,7 +57,10 @@ pub enum AppError {
     JoinError(String),
 
     #[error("Mutex poisoned: {0}")]
-    PoisonError(String)
+    PoisonError(String),
+
+    #[error("Other Error happened: {0}")]
+    Other(Error)
 }
 
 impl AppError {
@@ -74,7 +78,11 @@ impl From<tokio::task::JoinError> for AppError {
         AppError::JoinError(e.to_string())
     }
 }
-
+impl From<AppError> for tauri::ipc::InvokeError {
+    fn from(e: AppError) -> Self {
+        tauri::ipc::InvokeError::from(e.to_string())
+    }
+}
 // ==================== Result 日志扩展 ====================
 
 pub trait ResultLogExt<T, E> {

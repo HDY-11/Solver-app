@@ -15,5 +15,5 @@ utils = { version = "0.1.0", path = "../utils" }
 env-system = { version = "0.1.0", path = "../env-system" }
 error-system = { version = "0.1.0", path = "../error-system" }
 log ={ workspace = true}
-rusqlite = "0.39.0"
+rusqlite = { workspace = true }
 dashmap.workspace = true

@@ -64,7 +64,8 @@ r2d2 = "0.8.10"
 r2d2_sqlite = "0.34"
 dashmap = "6.1.0"
 vfs = { version = "0.1.0", path = "rust-libs/vfs" }
-
+env-system = { version = "0.1.0", path = "rust-libs/env-system" }
+rusqlite = { version = "0.39.0", features = ["bundled"] }
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
@@ -89,3 +90,4 @@ toml = "1.1.2"
 dirs = "6.0.0"
 r2d2 = "0.8.10"
 dashmap = "6.1.0"
+rusqlite = { version = "0.39.0", features = ["bundled"] }
