@@ -74,6 +74,21 @@ impl VirtualFileSystem {
                 CREATE INDEX IF NOT EXISTS idx_nodes_hash ON nodes(content_hash);
                 CREATE UNIQUE INDEX IF NOT EXISTS idx_nodes_name
                     ON nodes(parent_id, name, volume) WHERE deleted = 0;
+
+                -- 版本时间线表
+                CREATE TABLE IF NOT EXISTS node_versions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    node_id INTEGER NOT NULL,
+                    content_hash TEXT NOT NULL,
+                    storage_offset INTEGER NOT NULL,
+                    size INTEGER NOT NULL,
+                    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    FOREIGN KEY (node_id) REFERENCES nodes(id) ON DELETE CASCADE,
+                    UNIQUE(node_id, content_hash)
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_versions_lookup
+                    ON node_versions(node_id, created_at DESC);
                 "
             )
             .expect_log("初始化数据库表失败");

@@ -146,6 +146,37 @@ fn vfs_info() -> Result<VfsInfo, AppError> {
 }
 
 #[derive(Clone, Serialize)]
+struct VfsVersionInfo {
+    node_id: i64,
+    content_hash: String,
+    size: i64,
+    created_at: String,
+}
+
+#[command]
+fn vfs_list_versions(path: String) -> Result<Vec<VfsVersionInfo>, AppError> {
+    let versions: Vec<vfs::NodeVersionMeta> = vfs::VirFile::list_versions(&path)
+        .map_err(|e| AppError::Io(e))
+        .inspect_log("列出版本历史失败")?;
+    Ok(versions.iter().map(|v| VfsVersionInfo {
+        node_id: v.node_id,
+        content_hash: v.content_hash.clone(),
+        size: v.size,
+        created_at: v.created_at.clone(),
+    }).collect())
+}
+
+#[command]
+fn vfs_read_version(path: String, content_hash: String) -> Result<String, AppError> {
+    let bytes = vfs::VirFile::read_version(&path, &content_hash)
+        .map_err(|e| AppError::Io(e))
+        .inspect_log("读取历史版本失败")?;
+    String::from_utf8(bytes)
+        .map_err(|e| AppError::Other(anyhow::Error::from(e)))
+        .inspect_log("解码历史版本 UTF-8 失败")
+}
+
+#[derive(Clone, Serialize)]
 struct VfsInfo {
     c_exists: bool,
     c_used: u64,
@@ -191,6 +222,8 @@ pub fn run() {
             vfs_delete,
             vfs_create_dir,
             vfs_info,
+            vfs_list_versions,
+            vfs_read_version,
         ])
         .setup(move |app| {
             init_event_system(app.handle().clone()).unwrap_log();

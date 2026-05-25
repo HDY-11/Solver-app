@@ -2,8 +2,51 @@ use std::io;
 use std::path::Path;
 use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;
-use rusqlite::params;
 use error_system::ResultLogExt;
+
+// ── 列名常量 ──────────────────────────────────────
+
+/// nodes 表全部列（统一维护，避免每处 SELECT 重复写）
+const NODE_COLS: &str = "id, name, node_type, parent_id, volume, content_hash, \
+    storage_offset, size, version, created_at, modified_at, deleted, linked_files";
+
+// ── 通用工具 ──────────────────────────────────────
+
+/// 将任意 Display 错误映射为 io::Error
+fn map_io(context: &str, e: impl std::fmt::Display) -> io::Error {
+    io::Error::new(io::ErrorKind::Other, format!("{}: {}", context, e))
+}
+
+/// 获取 DB 连接
+pub(crate) fn get_conn(pool: &Pool<SqliteConnectionManager>) -> io::Result<r2d2::PooledConnection<SqliteConnectionManager>> {
+    pool.get().map_err(|e| map_io("获取数据库连接", e))
+}
+
+/// 执行 query_row，统一处理 NotFound 和 Err 分支
+fn query_single(conn: &rusqlite::Connection, sql: &str, p: &[&dyn rusqlite::types::ToSql]) -> io::Result<Option<NodeMeta>> {
+    let mut stmt = conn.prepare(sql).map_err(|e| map_io("准备查询", e))?;
+    match stmt.query_row(p, |row| row_to_node(row)) {
+        Ok(node) => Ok(Some(node)),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(e) => Err(map_io("查询失败", e)),
+    }
+}
+
+/// 执行 query_map，返回 Vec<NodeMeta>
+fn query_many(conn: &rusqlite::Connection, sql: &str, p: &[&dyn rusqlite::types::ToSql]) -> io::Result<Vec<NodeMeta>> {
+    let mut stmt = conn.prepare(sql).map_err(|e| map_io("准备查询", e))?;
+    stmt.query_map(p, |row| row_to_node(row))
+        .map_err(|e| map_io("查询映射", e))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| map_io("收集结果", e))
+}
+
+/// 执行 INSERT/UPDATE/DELETE，返回影响行数
+fn exec(conn: &rusqlite::Connection, sql: &str, p: &[&dyn rusqlite::types::ToSql]) -> io::Result<usize> {
+    conn.execute(sql, p).map_err(|e| map_io("执行写操作", e))
+}
+
+// ── NodeMeta ──────────────────────────────────────
 
 #[derive(Debug, Clone)]
 pub struct NodeMeta {
@@ -22,449 +65,238 @@ pub struct NodeMeta {
     pub linked_files: Option<String>,
 }
 
-// ── 获取连接 ──────────────────────────────────────
+// ── NodeVersionMeta（时间线）──────────────────────
 
-pub(crate) fn get_conn(pool: &Pool<SqliteConnectionManager>) -> io::Result<r2d2::PooledConnection<SqliteConnectionManager>> {
-    pool.get()
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("获取数据库连接失败: {}", e)))
+#[derive(Debug, Clone)]
+pub struct NodeVersionMeta {
+    pub id: i64,
+    pub node_id: i64,
+    pub content_hash: String,
+    pub storage_offset: i64,
+    pub size: i64,
+    pub created_at: String,
 }
 
 // ── 单节点查询 ────────────────────────────────────
 
 pub(crate) fn find_node_by_path(conn: &rusqlite::Connection, path: &str) -> io::Result<Option<NodeMeta>> {
-    log::debug!("[VFS-query] find_node_by_path: path='{}'", path);
-
     let components = env_system::vfs_components(Path::new(path))
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "无效的 VFS 路径"))?;
     let volume = env_system::vfs_volume(Path::new(path))
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "无效的 VFS 路径"))?;
 
-    log::debug!("[VFS-query]   解析结果: volume='{}', components={:?}", volume, components);
-
-    // 根路径：直接查卷根节点
     if components.is_empty() {
-        log::debug!("[VFS-query]   是根路径，查卷根节点");
-        let mut stmt = conn.prepare(
-            "SELECT id, name, node_type, parent_id, volume, content_hash,
-                    storage_offset, size, version, created_at, modified_at, deleted, linked_files
-             FROM nodes WHERE parent_id IS NULL AND name = ? AND volume = ? AND deleted = 0"
-        )
-        .expect_log("准备 SQL 查询失败");
-
-        let root_name = format!("{}:", volume);
-        log::debug!("[VFS-query]   查根节点: name='{}', volume='{}'", root_name, volume);
-
-        return match stmt.query_row(params![root_name, volume], |row| row_to_node(row)) {
-            Ok(node) => {
-                log::debug!("[VFS-query]   根节点找到: id={}", node.id);
-                Ok(Some(node))
-            }
-            Err(rusqlite::Error::QueryReturnedNoRows) => {
-                log::debug!("[VFS-query]   根节点不存在");
-                Ok(None)
-            }
-            Err(e) => {
-                log::error!("[VFS-query]   根节点查询失败: {}", e);
-                Err(io::Error::new(io::ErrorKind::Other, e.to_string()))
-            }
-        };
+        let root = format!("{}:", volume);
+        return query_single(conn,
+            &format!("SELECT {} FROM nodes WHERE parent_id IS NULL AND name=? AND volume=? AND deleted=0", NODE_COLS),
+            rusqlite::params![&root, &volume],
+        );
     }
 
-    // 非根路径：先找卷根节点，再逐级查找
-    let mut stmt = conn.prepare(
-        "SELECT id, name, node_type, parent_id, volume, content_hash,
-                storage_offset, size, version, created_at, modified_at, deleted, linked_files
-         FROM nodes WHERE parent_id IS ? AND name = ? AND volume = ? AND deleted = 0"
-    )
-    .expect_log("准备 SQL 查询失败");
-
-    // 先查卷根节点作为起始 parent_id
     let root_name = format!("{}:", volume);
-    log::debug!("[VFS-query]   先查根节点作为起点: name='{}', volume='{}'", root_name, volume);
-
-    let root = match stmt.query_row(params![None::<i64>, &root_name, volume], |row| row_to_node(row)) {
-        Ok(node) => {
-            log::debug!("[VFS-query]   根节点: id={}", node.id);
-            node
-        }
-        Err(rusqlite::Error::QueryReturnedNoRows) => {
-            log::debug!("[VFS-query]   卷根节点不存在，无法继续查找");
-            return Ok(None);
-        }
-        Err(e) => {
-            log::error!("[VFS-query]   查卷根节点失败: {}", e);
-            return Err(io::Error::new(io::ErrorKind::Other, e.to_string()));
-        }
+    let root = match find_node_by_name_and_parent(conn, &root_name, None, &volume)? {
+        Some(r) => r,
+        None => return Ok(None),
     };
 
-    // 从根节点开始逐级查找
     let mut parent_id = Some(root.id);
-    let mut result = Some(root);
-
-    for component in components.iter() {
-        log::debug!("[VFS-query]   查找组件: name='{}', parent_id={:?}, volume='{}'", 
-            component, parent_id, volume);
-
-        match stmt.query_row(params![parent_id, component, volume], |row| row_to_node(row)) {
-            Ok(node) => {
-                log::debug!("[VFS-query]     找到: id={}, type={}", node.id, node.node_type);
-                parent_id = Some(node.id);
-                result = Some(node);
-            }
-            Err(rusqlite::Error::QueryReturnedNoRows) => {
-                log::debug!("[VFS-query]     未找到，路径中断于组件 '{}'", component);
-                return Ok(None);
-            }
-            Err(e) => {
-                log::error!("[VFS-query]     查询失败: {}", e);
-                return Err(io::Error::new(io::ErrorKind::Other, e.to_string()));
-            }
+    let mut last = Some(root);
+    for comp in &components {
+        match find_node_by_name_and_parent(conn, comp, parent_id, &volume)? {
+            Some(node) => { parent_id = Some(node.id); last = Some(node); }
+            None => return Ok(None),
         }
     }
-
-    log::debug!("[VFS-query]   最终节点: id={}", 
-        result.as_ref().map(|n| n.id).unwrap_or(-1));
-    Ok(result)
+    Ok(last)
 }
 
-
 pub(crate) fn find_node_by_id(conn: &rusqlite::Connection, id: i64) -> io::Result<Option<NodeMeta>> {
-    log::debug!("[VFS-query] find_node_by_id: id={}", id);
-
-    let mut stmt = conn.prepare(
-        "SELECT id, name, node_type, parent_id, volume, content_hash,
-                storage_offset, size, version, created_at, modified_at, deleted, linked_files
-         FROM nodes WHERE id = ? AND deleted = 0"
+    query_single(conn,
+        &format!("SELECT {} FROM nodes WHERE id=? AND deleted=0", NODE_COLS),
+        rusqlite::params![&id],
     )
-    .expect_log("准备 SQL 查询失败");
+}
 
-    match stmt.query_row(params![id], |row| row_to_node(row)) {
-        Ok(node) => {
-            log::debug!("[VFS-query]   找到: name='{}', type={}", node.name, node.node_type);
-            Ok(Some(node))
-        }
-        Err(rusqlite::Error::QueryReturnedNoRows) => {
-            log::debug!("[VFS-query]   未找到");
-            Ok(None)
-        }
-        Err(e) => {
-            log::error!("[VFS-query]   查询失败: {}", e);
-            Err(io::Error::new(io::ErrorKind::Other, e.to_string()))
-        }
-    }
+pub(crate) fn find_node_by_name_and_parent(conn: &rusqlite::Connection, name: &str, parent_id: Option<i64>, volume: &str) -> io::Result<Option<NodeMeta>> {
+    query_single(conn,
+        &format!("SELECT {} FROM nodes WHERE parent_id IS ? AND name=? AND volume=? AND deleted=0", NODE_COLS),
+        rusqlite::params![&parent_id, &name, &volume],
+    )
 }
 
 // ── 列表查询 ──────────────────────────────────────
 
 pub(crate) fn list_children(conn: &rusqlite::Connection, parent_id: Option<i64>) -> io::Result<Vec<NodeMeta>> {
-    log::debug!("[VFS-query] list_children: parent_id={:?}", parent_id);
-
-    let mut stmt = if let Some(pid) = parent_id {
-        log::debug!("[VFS-query]   查子节点: parent_id={}", pid);
-        conn.prepare(
-            "SELECT id, name, node_type, parent_id, volume, content_hash,
-                    storage_offset, size, version, created_at, modified_at, deleted, linked_files
-             FROM nodes WHERE parent_id = ? AND deleted = 0 ORDER BY node_type, name"
+    if let Some(pid) = parent_id {
+        query_many(conn,
+            &format!("SELECT {} FROM nodes WHERE parent_id=? AND deleted=0 ORDER BY node_type, name", NODE_COLS),
+            rusqlite::params![&pid],
         )
-        .expect_log("准备列表查询失败")
     } else {
-        log::debug!("[VFS-query]   查根级节点: parent_id IS NULL");
-        conn.prepare(
-            "SELECT id, name, node_type, parent_id, volume, content_hash,
-                    storage_offset, size, version, created_at, modified_at, deleted, linked_files
-             FROM nodes WHERE parent_id IS NULL AND deleted = 0 ORDER BY volume, name"
+        query_many(conn,
+            &format!("SELECT {} FROM nodes WHERE parent_id IS NULL AND deleted=0 ORDER BY volume, name", NODE_COLS),
+            rusqlite::params![],
         )
-        .expect_log("准备列表查询失败")
-    };
-
-    let rows = stmt.query_map(params![parent_id], |row| row_to_node(row))
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
-
-    let nodes = rows.collect::<Result<Vec<_>, _>>()
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
-
-    log::debug!("[VFS-query]   返回 {} 个子节点", nodes.len());
-    Ok(nodes)
+    }
 }
 
 pub(crate) fn list_children_by_path(conn: &rusqlite::Connection, path: &str) -> io::Result<Vec<NodeMeta>> {
-    log::debug!("[VFS-query] list_children_by_path: path='{}'", path);
-
     let node = if is_volume_root(path) {
         let volume = env_system::vfs_volume(Path::new(path))
             .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "无效的 VFS 路径"))?;
         let root_name = format!("{}:", volume);
-        log::debug!("[VFS-query]   是卷根路径，查根节点: name='{}', volume='{}'", root_name, volume);
-
         find_node_by_name_and_parent(conn, &root_name, None, &volume)?
-            .ok_or_else(|| {
-                log::error!("[VFS-query]   卷根节点不存在: {}", root_name);
-                io::Error::new(io::ErrorKind::NotFound, format!("卷根节点不存在: {}", root_name))
-            })?
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, format!("卷根节点不存在: {}", root_name)))?
     } else {
-        log::debug!("[VFS-query]   非根路径，用 find_node_by_path");
         find_node_by_path(conn, path)?
-            .ok_or_else(|| {
-                log::error!("[VFS-query]   路径不存在: {}", path);
-                io::Error::new(io::ErrorKind::NotFound, format!("路径不存在: {}", path))
-            })?
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, format!("路径不存在: {}", path)))?
     };
-
-    log::debug!("[VFS-query]   找到节点: id={}, name='{}', type={}", node.id, node.name, node.node_type);
     list_children(conn, Some(node.id))
 }
 
 fn is_volume_root(path: &str) -> bool {
-    let inner = env_system::vfs_inner_path(Path::new(path));
-    let result = inner.as_deref().map_or(true, |s| s.is_empty());
-    log::debug!("[VFS-query] is_volume_root: path='{}', inner={:?}, result={}", path, inner, result);
-    result
+    env_system::vfs_inner_path(Path::new(path)).as_deref().map_or(true, |s| s.is_empty())
 }
-
 
 // ── 写入操作 ──────────────────────────────────────
 
 pub(crate) fn insert_node(conn: &rusqlite::Connection, name: &str, node_type: &str, parent_id: Option<i64>, volume: &str) -> io::Result<i64> {
-    log::debug!("[VFS-query] insert_node: name='{}', type={}, parent_id={:?}, volume='{}'", 
-        name, node_type, parent_id, volume);
-
-    conn.execute(
+    exec(conn,
         "INSERT INTO nodes (name, node_type, parent_id, volume) VALUES (?, ?, ?, ?)",
-        params![name, node_type, parent_id, volume],
-    )
-    .map_err(|e| {
-        log::error!("[VFS-query] insert_node 失败: name='{}', type={}, parent_id={:?}, volume='{}', error={}", 
-            name, node_type, parent_id, volume, e);
-        io::Error::new(io::ErrorKind::Other, format!("insert_node failed!{}", e.to_string()))
-    })?;
-
-    let id = conn.last_insert_rowid();
-    log::debug!("[VFS-query] insert_node 成功: id={}", id);
-    Ok(id)
+        rusqlite::params![&name, &node_type, &parent_id, &volume],
+    )?;
+    Ok(conn.last_insert_rowid())
 }
 
+/// 更新节点的 blob 存储偏移——不再自动递增 version（version 由用户手动设置）
 pub(crate) fn update_node_storage(conn: &rusqlite::Connection, id: i64, offset: u64, size: u64, hash: &str) -> io::Result<()> {
-    log::debug!("[VFS-query] update_node_storage: id={}, offset={}, size={}, hash={}", 
-        id, offset, size, hash);
-
-    // 递增版本号：每次写入 patch 号 +1（格式 MAJOR.MINOR.PATCH）
-    // 与 storage_offset/size/hash 在同一事务中更新，保证一致性
-    conn.execute(
-        "UPDATE nodes SET storage_offset = ?, size = ?, content_hash = ?,
-            version = printf('%d.%d.%d',
-                CAST(substr(version, 1, instr(version, '.') - 1) AS INTEGER),
-                CAST(substr(version, instr(version, '.') + 1,
-                    instr(substr(version, instr(version, '.') + 1), '.') - 1) AS INTEGER),
-                CAST(substr(version,
-                    instr(version, '.') + instr(substr(version, instr(version, '.') + 1), '.') + 1
-                ) AS INTEGER) + 1),
-            modified_at = datetime('now')
-         WHERE id = ?",
-        params![offset as i64, size as i64, hash, id],
-    )
-    .map_err(|e| {
-        log::error!("[VFS-query] update_node_storage 失败: id={}, error={}", id, e);
-        io::Error::new(io::ErrorKind::Other, format!("update_node_storage failed!{}", e.to_string()))
-    })?;
-
-    log::debug!("[VFS-query] update_node_storage 成功: id={}", id);
+    exec(conn,
+        "UPDATE nodes SET storage_offset=?, size=?, content_hash=?, modified_at=datetime('now') WHERE id=?",
+        rusqlite::params![&(offset as i64), &(size as i64), &hash, &id],
+    )?;
     Ok(())
 }
 
 pub(crate) fn update_node_modified_at(conn: &rusqlite::Connection, id: i64) -> io::Result<()> {
-    log::debug!("[VFS-query] update_node_modified_at: id={}", id);
-
-    conn.execute(
-        "UPDATE nodes SET modified_at = datetime('now') WHERE id = ?",
-        params![id],
-    )
-    .map_err(|e| {
-        log::error!("[VFS-query] update_node_modified_at 失败: id={}, error={}", id, e);
-        io::Error::new(io::ErrorKind::Other, format!("update_node_modified_at failed!{}", e.to_string()))
-    })?;
+    exec(conn, "UPDATE nodes SET modified_at=datetime('now') WHERE id=?", rusqlite::params![&id])?;
     Ok(())
 }
 
 pub(crate) fn soft_delete_node(conn: &rusqlite::Connection, id: i64) -> io::Result<()> {
-    log::debug!("[VFS-query] soft_delete_node: id={}", id);
-
-    conn.execute(
-        "UPDATE nodes SET deleted = 1, modified_at = datetime('now') WHERE id = ?",
-        params![id],
-    )
-    .map_err(|e| {
-        log::error!("[VFS-query] soft_delete_node 失败: id={}, error={}", id, e);
-        io::Error::new(io::ErrorKind::Other, format!("soft_delete_node failed!{}", e.to_string()))
-    })?;
-
-    log::debug!("[VFS-query] soft_delete_node 成功: id={}", id);
+    exec(conn, "UPDATE nodes SET deleted=1, modified_at=datetime('now') WHERE id=?", rusqlite::params![&id])?;
     Ok(())
 }
 
 pub(crate) fn rename_node(conn: &rusqlite::Connection, id: i64, new_name: &str) -> io::Result<()> {
-    log::debug!("[VFS-query] rename_node: id={}, new_name='{}'", id, new_name);
-
-    conn.execute(
-        "UPDATE nodes SET name = ?, modified_at = datetime('now') WHERE id = ?",
-        params![new_name, id],
-    )
-    .map_err(|e| {
-        log::error!("[VFS-query] rename_node 失败: id={}, new_name='{}', error={}", id, new_name, e);
-        io::Error::new(io::ErrorKind::Other, format!("rename_node failed!{}", e.to_string()))
-    })?;
+    exec(conn, "UPDATE nodes SET name=?, modified_at=datetime('now') WHERE id=?", rusqlite::params![&new_name, &id])?;
     Ok(())
 }
 
 pub(crate) fn move_node(conn: &rusqlite::Connection, id: i64, new_parent_id: Option<i64>, new_volume: &str) -> io::Result<()> {
-    log::debug!("[VFS-query] move_node: id={}, new_parent_id={:?}, new_volume='{}'", 
-        id, new_parent_id, new_volume);
-
-    conn.execute(
-        "UPDATE nodes SET parent_id = ?, volume = ?, modified_at = datetime('now') WHERE id = ?",
-        params![new_parent_id, new_volume, id],
-    )
-    .map_err(|e| {
-        log::error!("[VFS-query] move_node 失败: id={}, error={}", id, e);
-        io::Error::new(io::ErrorKind::Other, format!("move_node failed!{}", e.to_string()))
-    })?;
+    exec(conn, "UPDATE nodes SET parent_id=?, volume=?, modified_at=datetime('now') WHERE id=?", rusqlite::params![&new_parent_id, &new_volume, &id])?;
     Ok(())
 }
 
 pub(crate) fn get_storage_offset(conn: &rusqlite::Connection, id: i64) -> io::Result<(u64, u64)> {
-    log::debug!("[VFS-query] get_storage_offset: id={}", id);
-
-    let mut stmt = conn.prepare(
-        "SELECT storage_offset, size FROM nodes WHERE id = ? AND deleted = 0"
-    )
-    .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("get_storage_offset failed!{}", e.to_string())))?;
-
-    stmt.query_row(params![id], |row| {
-        Ok((
-            row.get::<_, Option<i64>>(0)?.unwrap_or(0) as u64,
-            row.get::<_, Option<i64>>(1)?.unwrap_or(0) as u64,
-        ))
-    })
-    .map_err(|e| {
-        log::error!("[VFS-query] get_storage_offset 查询失败: id={}, error={}", id, e);
-        io::Error::new(io::ErrorKind::Other, e.to_string())
-    })
+    let mut stmt = conn.prepare("SELECT storage_offset, size FROM nodes WHERE id=? AND deleted=0")
+        .map_err(|e| map_io("get_storage_offset 准备", e))?;
+    stmt.query_row(rusqlite::params![&id], |row| {
+        Ok((row.get::<_, Option<i64>>(0)?.unwrap_or(0) as u64,
+            row.get::<_, Option<i64>>(1)?.unwrap_or(0) as u64))
+    }).map_err(|e| map_io("get_storage_offset 查询", e))
 }
 
 pub(crate) fn node_exists_path(conn: &rusqlite::Connection, path: &str) -> io::Result<bool> {
-    log::debug!("[VFS-query] node_exists_path: path='{}'", path);
-    
-    // 处理卷根路径
     if is_volume_root(path) {
         let volume = env_system::vfs_volume(Path::new(path))
             .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "无效的 VFS 路径"))?;
         let root_name = format!("{}:", volume);
-        let node = find_node_by_name_and_parent(conn, &root_name, None, &volume)?;
-        let exists = node.is_some();
-        log::debug!("[VFS-query] node_exists_path 结果: {}", exists);
-        return Ok(exists);
+        return Ok(find_node_by_name_and_parent(conn, &root_name, None, &volume)?.is_some());
     }
-    
-    let exists = find_node_by_path(conn, path)?.is_some();
-    log::debug!("[VFS-query] node_exists_path 结果: {}", exists);
-    Ok(exists)
+    Ok(find_node_by_path(conn, path)?.is_some())
 }
 
 pub(crate) fn ensure_parent_dirs(conn: &rusqlite::Connection, path: &str) -> io::Result<i64> {
-    log::debug!("[VFS-query] ensure_parent_dirs: path='{}'", path);
-
     let volume = env_system::vfs_volume(Path::new(path))
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "无效的 VFS 路径"))?;
     let inner = env_system::vfs_inner_path(Path::new(path)).unwrap_or_default();
-    let parent_path = Path::new(&inner).parent().map(|p| p.to_string_lossy().to_string());
+    let parent = Path::new(&inner).parent().map(|p| p.to_string_lossy().to_string());
 
-    log::debug!("[VFS-query]   解析: volume='{}', inner='{}', parent='{:?}'", 
-        volume, inner, parent_path);
-
-    // 先找到卷的根节点
     let root_name = format!("{}:", volume);
-    log::debug!("[VFS-query]   查根节点: name='{}', volume='{}'", root_name, volume);
-
     let root = find_node_by_name_and_parent(conn, &root_name, None, &volume)?
-        .ok_or_else(|| {
-            log::error!("[VFS-query]   卷根节点不存在: {}", root_name);
-            io::Error::new(io::ErrorKind::NotFound, format!("卷根节点不存在: {}", root_name))
-        })?;
+        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, format!("卷根节点不存在: {}", root_name)))?;
 
-    log::debug!("[VFS-query]   根节点: id={}", root.id);
-    
-    if let Some(parent) = parent_path {
-        if !parent.is_empty() {
-            let parts: Vec<&str> = parent.split('/').filter(|s| !s.is_empty()).collect();
-            log::debug!("[VFS-query]   父路径组件: {:?}", parts);
+    let Some(parent) = parent else { return Ok(root.id) };
+    if parent.is_empty() { return Ok(root.id) }
 
-            let mut current_parent = root.id;
-            
-            for part in parts {
-                log::debug!("[VFS-query]     检查组件: '{}', 当前父节点 id={}", part, current_parent);
-
-                let existing = find_node_by_name_and_parent(conn, part, Some(current_parent), &volume)?;
-                match existing {
-                    Some(node) => {
-                        log::debug!("[VFS-query]       已存在: id={}", node.id);
-                        current_parent = node.id;
-                    }
-                    None => {
-                        log::debug!("[VFS-query]       不存在，创建新目录");
-                        let new_id = insert_node(conn, part, "folder", Some(current_parent), &volume)?;
-                        log::debug!("[VFS-query]       创建成功: id={}", new_id);
-                        current_parent = new_id;
-                    }
-                }
-            }
-            log::debug!("[VFS-query]   最终父节点: id={}", current_parent);
-            return Ok(current_parent);
+    let parts: Vec<&str> = parent.split('/').filter(|s| !s.is_empty()).collect();
+    let mut cur = root.id;
+    for part in parts {
+        match find_node_by_name_and_parent(conn, part, Some(cur), &volume)? {
+            Some(node) => cur = node.id,
+            None => cur = insert_node(conn, part, "folder", Some(cur), &volume)?,
         }
     }
-    log::debug!("[VFS-query]   父路径为空，使用根节点: id={}", root.id);
-    Ok(root.id)
+    Ok(cur)
 }
 
+// ── node_versions 时间线查询 ──────────────────────
 
-fn find_node_by_name_and_parent(conn: &rusqlite::Connection, name: &str, parent_id: Option<i64>, volume: &str) -> io::Result<Option<NodeMeta>> {
-    log::debug!("[VFS-query] find_node_by_name_and_parent: name='{}', parent_id={:?}, volume='{}'", 
-        name, parent_id, volume);
+/// 存档旧版本：写入前调用，将当前 (hash, offset, size) 插入 node_versions
+pub(crate) fn archive_version(conn: &rusqlite::Connection, node_id: i64, hash: &str, offset: i64, size: i64) -> io::Result<()> {
+    // 同一 (node_id, hash) 只存一次（内容去重），冲突时静默忽略
+    exec(conn,
+        "INSERT OR IGNORE INTO node_versions (node_id, content_hash, storage_offset, size) VALUES (?, ?, ?, ?)",
+        rusqlite::params![&node_id, &hash, &offset, &size],
+    )?;
+    Ok(())
+}
 
+/// 获取某节点的版本时间线，按时间倒序
+pub(crate) fn get_version_history(conn: &rusqlite::Connection, node_id: i64) -> io::Result<Vec<NodeVersionMeta>> {
+    let stmt_str = "SELECT id, node_id, content_hash, storage_offset, size, created_at \
+                    FROM node_versions WHERE node_id=? ORDER BY created_at DESC";
+    let mut stmt = conn.prepare(stmt_str).map_err(|e| map_io("get_version_history 准备", e))?;
+    stmt.query_map(rusqlite::params![&node_id], |row| {
+        Ok(NodeVersionMeta {
+            id: row.get(0)?,
+            node_id: row.get(1)?,
+            content_hash: row.get(2)?,
+            storage_offset: row.get(3)?,
+            size: row.get(4)?,
+            created_at: row.get(5)?,
+        })
+    }).map_err(|e| map_io("get_version_history 映射", e))?
+      .collect::<Result<Vec<_>, _>>()
+      .map_err(|e| map_io("get_version_history 收集", e))
+}
+
+/// 按 node_id + content_hash 查找版本（检查去重）
+pub(crate) fn find_version_by_hash(conn: &rusqlite::Connection, node_id: i64, hash: &str) -> io::Result<Option<NodeVersionMeta>> {
     let mut stmt = conn.prepare(
-        "SELECT id, name, node_type, parent_id, volume, content_hash,
-                storage_offset, size, version, created_at, modified_at, deleted, linked_files
-         FROM nodes WHERE parent_id IS ? AND name = ? AND volume = ? AND deleted = 0"
-    )
-    .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("find_node_by_name_and_parent failed!{}", e.to_string())))?;
-
-    match stmt.query_row(params![parent_id, name, volume], |row| row_to_node(row)) {
-        Ok(node) => {
-            log::debug!("[VFS-query]   找到: id={}, type={}", node.id, node.node_type);
-            Ok(Some(node))
-        }
-        Err(rusqlite::Error::QueryReturnedNoRows) => {
-            log::debug!("[VFS-query]   未找到");
-            Ok(None)
-        }
-        Err(e) => {
-            log::error!("[VFS-query]   查询失败: {}", e);
-            Err(io::Error::new(io::ErrorKind::Other, e.to_string()))
-        }
+        "SELECT id, node_id, content_hash, storage_offset, size, created_at \
+         FROM node_versions WHERE node_id=? AND content_hash=? LIMIT 1"
+    ).map_err(|e| map_io("find_version_by_hash 准备", e))?;
+    match stmt.query_row(rusqlite::params![&node_id, &hash], |row| {
+        Ok(NodeVersionMeta {
+            id: row.get(0)?, node_id: row.get(1)?, content_hash: row.get(2)?,
+            storage_offset: row.get(3)?, size: row.get(4)?, created_at: row.get(5)?,
+        })
+    }) {
+        Ok(v) => Ok(Some(v)),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(e) => Err(map_io("find_version_by_hash 查询", e)),
     }
 }
+
+// ── row → NodeMeta ────────────────────────────────
 
 fn row_to_node(row: &rusqlite::Row) -> rusqlite::Result<NodeMeta> {
     Ok(NodeMeta {
-        id: row.get(0)?,
-        name: row.get(1)?,
-        node_type: row.get(2)?,
-        parent_id: row.get(3)?,
-        volume: row.get(4)?,
-        content_hash: row.get(5)?,
-        storage_offset: row.get(6)?,
-        size: row.get(7)?,
-        version: row.get(8)?,
-        created_at: row.get(9)?,
-        modified_at: row.get(10)?,
+        id: row.get(0)?, name: row.get(1)?, node_type: row.get(2)?,
+        parent_id: row.get(3)?, volume: row.get(4)?, content_hash: row.get(5)?,
+        storage_offset: row.get(6)?, size: row.get(7)?, version: row.get(8)?,
+        created_at: row.get(9)?, modified_at: row.get(10)?,
         deleted: row.get::<_, i32>(11)? != 0,
         linked_files: row.get(12)?,
     })

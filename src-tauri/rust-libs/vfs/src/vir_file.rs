@@ -211,18 +211,50 @@ impl VirFile {
 
     pub fn exists(path: impl AsRef<Path>) -> io::Result<bool> {
         let path_str = path.as_ref().to_string_lossy();
-        log::debug!("[VirFile] exists: path='{}'", path_str);
-
         let vfs = crate::vfs_core::VirtualFileSystem::get();
         let conn = vfs.db_pool.get()
             .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))
             .inspect_log("exists: 获取数据库连接失败")?;
+        query::node_exists_path(&conn, &path_str)
+    }
 
-        let exists = query::node_exists_path(&conn, &path_str)
-            .inspect_log(format!("exists: 查询失败: path='{}'", path_str))?;
+    /// 获取某节点的版本时间线列表
+    pub fn list_versions(path: impl AsRef<Path>) -> io::Result<Vec<query::NodeVersionMeta>> {
+        let path_str = path.as_ref().to_string_lossy();
+        let vfs = crate::vfs_core::VirtualFileSystem::get();
+        let conn = vfs.db_pool.get()
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))
+            .inspect_log("list_versions: 获取数据库连接失败")?;
+        let meta = query::find_node_by_path(&conn, &path_str)
+            .inspect_log(format!("list_versions: 查找节点失败: {}", path_str))?
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "文件不存在"))?;
+        query::get_version_history(&conn, meta.id)
+    }
 
-        log::debug!("[VirFile] exists: path='{}', result={}", path_str, exists);
-        Ok(exists)
+    /// 从 BlobStore 读取指定版本的原始字节
+    pub fn read_version(path: impl AsRef<Path>, content_hash: &str) -> io::Result<Vec<u8>> {
+        let path_str = path.as_ref().to_string_lossy();
+        let vfs = crate::vfs_core::VirtualFileSystem::get();
+
+        // 解析卷名 → 获取 BlobStore 连接
+        let volume = env_system::vfs_volume(path.as_ref())
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "无效的 VFS 路径"))?;
+        let pool = vfs.get_pool(&volume)?;
+
+        let conn = vfs.db_pool.get()
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))
+            .inspect_log("read_version: 获取数据库连接失败")?;
+
+        let meta = query::find_node_by_path(&conn, &path_str)?
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "文件不存在"))?;
+
+        let version = query::find_version_by_hash(&conn, meta.id, content_hash)?
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "版本不存在"))?;
+
+        let lease = pool.acquire();
+        let mut buf = vec![0u8; version.size as usize];
+        pool.read_at(&lease, version.storage_offset as u64, &mut buf)?;
+        Ok(buf)
     }
 
     fn pool(&self) -> &DataFilePool {
@@ -270,14 +302,27 @@ impl Read for VirFile {
 
 impl Write for VirFile {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        log::debug!("[VirFile] write: node_id={}, buf_len={}", self.node_id, buf.len());
+
+        let conn = self.db_pool.get()
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))
+            .inspect_log("write: 获取数据库连接失败")?;
+
+        // 存档当前版本到 node_versions：先读出当前的 (hash, offset, size)
+        // 如果 content_hash 非空且与旧内容不同，则 INSERT OR IGNORE 到时间线
+        if let Ok(Some(old_meta)) = query::find_node_by_id(&conn, self.node_id) {
+            if let (Some(old_hash), Some(old_off), Some(old_sz)) =
+                (old_meta.content_hash, old_meta.storage_offset, old_meta.size)
+            {
+                // INSERT OR IGNORE：同一 (node_id, hash) 不重复插入（去重）
+                query::archive_version(&conn, self.node_id, &old_hash, old_off, old_sz)
+                    .inspect_log(format!("write: 存档旧版本失败: node_id={}", self.node_id))?;
+            }
+        }
 
         let pool = self.pool();
 
         let new_offset = pool.alloc(buf.len())
             .inspect_log(format!("write: 分配 BlobStore 空间失败: len={}", buf.len()))?;
-
-        log::debug!("[VirFile] write: 分配偏移量={}, len={}", new_offset, buf.len());
 
         pool.write_at(&self.lease, new_offset, buf)
             .inspect_log(format!("write: pwrite 失败: offset={}, len={}", new_offset, buf.len()))?;
@@ -289,18 +334,15 @@ impl Write for VirFile {
             hex::encode(hasher.finalize())
         };
 
-        log::debug!("[VirFile] write: 内容哈希={}", hash);
+        // 新内容也存档：如果是一个新的 hash，插入 node_versions
+        query::archive_version(&conn, self.node_id, &hash, new_offset as i64, buf.len() as i64)
+            .inspect_log(format!("write: 存档新版本失败: node_id={}", self.node_id))?;
 
-        let conn = self.db_pool.get()
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))
-            .inspect_log("write: 获取数据库连接失败")?;
-
+        // 更新 nodes 表的当前存储信息
         query::update_node_storage(&conn, self.node_id, new_offset, buf.len() as u64, &hash)
             .inspect_log(format!("write: 更新元信息失败: node_id={}", self.node_id))?;
 
         self.virt_pos += buf.len() as u64;
-        log::info!("[VirFile] write 完成: node_id={}, offset={}, len={}, hash={}", 
-            self.node_id, new_offset, buf.len(), hash);
         Ok(buf.len())
     }
 
