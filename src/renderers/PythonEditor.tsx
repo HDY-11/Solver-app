@@ -1,65 +1,85 @@
-// renderers/PythonEditor.tsx
+// renderers/PythonEditor.tsx — Python 代码编辑器（基于 Monaco）
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { error as logError } from '@tauri-apps/plugin-log';
 import Editor from '@monaco-editor/react';
 import { registerRenderer } from '../registry/registry';
+import { readFile, writeFile } from '../api/vfs';
+import { runScript } from '../api/script';
+import { useToast } from '../hooks/useToast';
+import { Loading } from '../components/Loading';
 import type { RendererProps } from '../registry/types';
+import styles from './PythonEditor.module.css';
 
 function PythonEditor({ nodeId }: RendererProps) {
+  const { addToast } = useToast();
+  // 解码 VFS 路径（Sidebar 传入时用了 encodeURIComponent）
+  const vfsPath = nodeId ? decodeURIComponent(nodeId) : null;
   const [code, setCode] = useState<string>('');
+  const [loading, setLoading] = useState(false);
   const [saved, setSaved] = useState(true);
   const [running, setRunning] = useState(false);
   const [output, setOutput] = useState<string | null>(null);
+  const [elapsedMs, setElapsedMs] = useState<number | null>(null);
   const codeRef = useRef(code);
-  const nodeIdRef = useRef(nodeId);
+  const pathRef = useRef(vfsPath);
+  const outputRef = useRef<HTMLDivElement>(null);
   codeRef.current = code;
-  nodeIdRef.current = nodeId;
+  pathRef.current = vfsPath;
 
   // 加载文件
   useEffect(() => {
-    if (!nodeId) return;
-    invoke<string>('vfs_read', { path: `(vfs)/C/${nodeId}` })
+    if (!vfsPath) return;
+    setLoading(true);
+    readFile(vfsPath)
       .then(content => {
         setCode(content);
         setSaved(true);
       })
-      .catch(err => setCode(`# 加载失败: ${err}`));
-  }, [nodeId]);
+      .catch(err => {
+        logError(`PythonEditor: 加载文件失败 (${vfsPath}): ${err}`);
+        setCode(`# 加载失败: ${err}`);
+      })
+      .finally(() => setLoading(false));
+  }, [vfsPath]);
 
   // 保存
   const handleSave = useCallback(async () => {
-    const id = nodeIdRef.current;
-    if (!id) return;
+    const p = pathRef.current;
+    if (!p) return;
     try {
-      await invoke('vfs_write', {
-        path: `(vfs)/C/${id}`,
-        content: codeRef.current,
-      });
+      await writeFile(p, codeRef.current);
       setSaved(true);
+      addToast('success', '已保存');
     } catch (err) {
-      console.error('保存失败:', err);
+      logError(`PythonEditor: 保存失败 (${p}): ${err}`);
+      addToast('error', `保存失败: ${err}`);
     }
-  }, []);
+  }, [addToast]);
 
   // 运行
   const handleRun = useCallback(async () => {
-    const id = nodeIdRef.current;
-    if (!id) return;
+    const p = pathRef.current;
+    if (!p) return;
     setRunning(true);
     setOutput(null);
+    setElapsedMs(null);
+    const start = performance.now();
     try {
       await handleSave();
-      const result = await invoke<string>('run_script', {
-        path: `(vfs)/C/${id}`,
-      });
+      const result = await runScript(p);
       setOutput(result);
+      setElapsedMs(Math.round(performance.now() - start));
+      addToast('success', '运行完成');
     } catch (err) {
+      logError(`PythonEditor: 运行失败 (${p}): ${err}`);
       setOutput(`运行失败: ${err}`);
+      setElapsedMs(Math.round(performance.now() - start));
+      addToast('error', `运行失败: ${err}`);
     } finally {
       setRunning(false);
     }
-  }, [handleSave]);
+  }, [handleSave, addToast]);
 
   // 快捷键 Ctrl+S / Ctrl+Enter
   useEffect(() => {
@@ -78,9 +98,15 @@ function PythonEditor({ nodeId }: RendererProps) {
   }, [handleSave, handleRun]);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      {/* 编辑器 */}
-      <div style={{ flex: 1 }}>
+    <div className={styles.container}>
+      {loading ? (
+        <Loading text="加载文件中..." />
+      ) : (
+      <>
+      <div className={styles.editorArea}>
+        {!saved && (
+          <div className={styles.unsavedBadge}>● 未保存</div>
+        )}
         <Editor
           height="100%"
           defaultLanguage="python"
@@ -101,42 +127,45 @@ function PythonEditor({ nodeId }: RendererProps) {
             insertSpaces: true,
           }}
         />
+        <div className={styles.fileBadge}>
+          {saved ? '✓' : '●'} {(nodeId ?? '').split('/').pop()}
+        </div>
       </div>
 
-      {/* 输出面板 */}
       {output !== null && (
-        <div style={{
-          height: 200,
-          background: '#1e1e1e',
-          color: '#d4d4d4',
-          borderTop: '1px solid var(--gray-300)',
-          padding: 12,
-          fontFamily: 'var(--font-mono)',
-          fontSize: 13,
-          overflow: 'auto',
-          whiteSpace: 'pre-wrap',
-        }}>
-          <div style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            marginBottom: 8,
-            fontSize: 12,
-            color: '#888',
-          }}>
-            <span>{running ? '⏳ 运行中...' : '📋 输出'}</span>
-            <button
-              onClick={() => setOutput(null)}
-              style={{
-                background: 'none',
-                border: 'none',
-                color: '#888',
-                cursor: 'pointer',
-                fontSize: 14,
-              }}
-            >✕</button>
+        <div ref={outputRef} className={styles.outputPanel}>
+          <div className={styles.outputHeader}>
+            <span className={styles.outputStatus}>
+              {running ? '⏳ 运行中...' : '📋 输出'}
+              {elapsedMs !== null && !running && (
+                <span className={styles.elapsed}>({elapsedMs}ms)</span>
+              )}
+            </span>
+            <div className={styles.outputActions}>
+              <button
+                className={styles.outputBtn}
+                onClick={() => {
+                  navigator.clipboard.writeText(output).then(() => {
+                    addToast('info', '已复制到剪贴板');
+                  });
+                }}
+                title="复制输出"
+              >📋</button>
+              <button
+                className={styles.outputBtn}
+                onClick={() => setOutput(null)}
+                title="关闭面板"
+              >✕</button>
+            </div>
           </div>
-          {output}
+          {output.includes('运行失败') ? (
+            <span className={styles.outputStderr}>{output}</span>
+          ) : (
+            <span>{output}</span>
+          )}
         </div>
+      )}
+      </>
       )}
     </div>
   );
@@ -150,12 +179,12 @@ registerRenderer({
   component: PythonEditor,
   icon: '🐍',
   label: 'Python',
-  toolbar: ({ nodeId }) => <PythonToolbar nodeId={nodeId} />,
+  toolbar: () => <PythonToolbar />,
 });
 
 // ── 工具栏 ────────────────────────────────────
 
-function PythonToolbar({ nodeId }: RendererProps) {
+function PythonToolbar() {
   const handleSave = () => {
     window.dispatchEvent(new KeyboardEvent('keydown', {
       ctrlKey: true, key: 's', bubbles: true,
@@ -168,6 +197,15 @@ function PythonToolbar({ nodeId }: RendererProps) {
     }));
   };
 
+  // 分离窗口：通过自定义事件通知 WindowManager
+  const handleDetach = () => {
+    const pathParts = window.location.pathname.split('/');
+    const nodeId = pathParts[pathParts.length - 1];
+    window.dispatchEvent(new CustomEvent('detach-window', {
+      detail: { nodeId, label: `脚本 ${nodeId}` },
+    }));
+  };
+
   return (
     <>
       <button className="btn btn-primary btn-sm" onClick={handleRun}>
@@ -175,6 +213,9 @@ function PythonToolbar({ nodeId }: RendererProps) {
       </button>
       <button className="btn btn-sm" onClick={handleSave}>
         💾 保存
+      </button>
+      <button className="btn btn-sm" onClick={handleDetach} title="在新窗口打开">
+        🪟 分离
       </button>
     </>
   );

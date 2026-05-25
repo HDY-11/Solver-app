@@ -1,20 +1,7 @@
 import React, { useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-
-interface VfsNode {
-  id: number;
-  name: string;
-  node_type: string;
-  size: number | null;
-  modified_at: string;
-}
-
-interface VfsInfo {
-  c_exists: boolean;
-  c_used: number;
-  c_total: number;
-  c_node_count: number;
-}
+import { error as logError, info as logInfo } from '@tauri-apps/plugin-log';
+import type { VfsNode, VfsInfo } from '../types';
 
 const byteFmt = (bytes: number) => {
   if (bytes < 1024) return `${bytes} B`;
@@ -33,7 +20,9 @@ const VfsTestPage: React.FC = () => {
     try {
       const info = await invoke<VfsInfo>('vfs_info');
       setVfsInfo(info);
+      logInfo('VfsTest: vfs_info 刷新成功');
     } catch (e) {
+      logError(`VfsTest: vfs_info 失败: ${e}`);
       setResult(`获取 VFS 信息失败: ${e}`);
     }
   };
@@ -44,6 +33,7 @@ const VfsTestPage: React.FC = () => {
       setNodes(list);
       setResult(`列出 ${path} 成功 (${list.length} 项)`);
     } catch (e) {
+      logError(`VfsTest: vfs_list_dir 失败: ${e}`);
       setResult(`列出目录失败: ${e}`);
       setNodes([]);
     }
@@ -56,6 +46,7 @@ const VfsTestPage: React.FC = () => {
       await refreshInfo();
       await refreshList('(vfs)/C');
     } catch (e) {
+      logError(`VfsTest: vfs_write 失败: ${e}`);
       setResult(`写入失败: ${e}`);
     }
   };
@@ -65,6 +56,7 @@ const VfsTestPage: React.FC = () => {
       const content = await invoke<string>('vfs_read', { path });
       setResult(`读取成功:\n${content}`);
     } catch (e) {
+      logError(`VfsTest: vfs_read 失败: ${e}`);
       setResult(`读取失败: ${e}`);
     }
   };
@@ -76,6 +68,7 @@ const VfsTestPage: React.FC = () => {
       await refreshInfo();
       await refreshList('(vfs)/C');
     } catch (e) {
+      logError(`VfsTest: vfs_delete 失败: ${e}`);
       setResult(`删除失败: ${e}`);
     }
   };
@@ -85,6 +78,7 @@ const VfsTestPage: React.FC = () => {
       const exists = await invoke<boolean>('vfs_exists', { path });
       setResult(`${path} ${exists ? '存在' : '不存在'}`);
     } catch (e) {
+      logError(`VfsTest: vfs_exists 失败: ${e}`);
       setResult(`检查失败: ${e}`);
     }
   };
@@ -96,6 +90,7 @@ const VfsTestPage: React.FC = () => {
       await refreshInfo();
       await refreshList('(vfs)/C');
     } catch (e) {
+      logError(`VfsTest: vfs_create_dir 失败: ${e}`);
       setResult(`创建目录失败: ${e}`);
     }
   };

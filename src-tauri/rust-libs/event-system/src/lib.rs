@@ -4,16 +4,10 @@ use once_cell::sync::OnceCell;
 
 pub static GLOBAL_APPHANDLE: OnceCell<AppHandle> = OnceCell::new();
 
-// ── 事件注册表（硬编码，后续可改为读取配置） ────────────────
+// ── 事件注册表（预留，后续按需扩展） ────────────────
 pub mod event_registry {
-    // 集中注册所有合法事件
-    const VALID_EVENTS: &[&str] = &[
-        "user-login",
-        "user-logout",
-        "data-sync",
-        "config-changed",
-        "app-shutdown",
-    ];
+    // 当前仅使用动态事件（emit!(dyn ...)），静态注册表备空
+    const VALID_EVENTS: &[&str] = &[];
 
     /// 检查事件名是否在注册表中
     pub const fn is_valid(event: &str) -> bool {
@@ -51,14 +45,8 @@ pub mod event_registry {
         use super::*;
 
         #[test]
-        fn registered_events_pass() {
-            assert!(is_valid("user-login"));
-            assert!(is_valid("app-shutdown"));
-        }
-
-        #[test]
-        fn unregistered_events_fail() {
-            assert!(!is_valid("unknown-event"));
+        fn empty_registry_rejects_all() {
+            assert!(!is_valid("any-event"));
         }
     }
 }

@@ -17,6 +17,7 @@ pub struct VfsNodeInfo {
     pub node_type: String,
     pub size: Option<u64>,
     pub modified_at: String,
+    pub version: String,
 }
 
 pub struct VirFile {
@@ -139,6 +140,7 @@ impl VirFile {
             node_type: m.node_type.clone(),
             size: m.size.map(|s| s as u64),
             modified_at: m.modified_at.clone(),
+            version: m.version.clone(),
         }).collect();
 
         log::debug!("[VirFile] list_children 完成: path='{}', 子节点数={}", path_str, result.len());

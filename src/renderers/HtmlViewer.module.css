@@ -1,0 +1,30 @@
+/* HtmlViewer.module.css */
+
+.container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.sourceView {
+  flex: 1;
+  margin: 0;
+  padding: 16px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  overflow: auto;
+  white-space: pre-wrap;
+  background: #1e1e1e;
+  color: #d4d4d4;
+}
+
+.previewFrame {
+  flex: 1;
+  border: none;
+  background: #fff;
+}
+
+.placeholder {
+  padding: 24px;
+  color: var(--gray-500);
+}

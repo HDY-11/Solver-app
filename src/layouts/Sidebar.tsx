@@ -1,36 +1,15 @@
-// layouts/Sidebar.tsx
+// layouts/Sidebar.tsx — VFS 文件树侧边栏
 
 import { useState, useEffect, useCallback, useRef, memo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { invoke } from '@tauri-apps/api/core';
+import { error as logError } from '@tauri-apps/plugin-log';
 import { getRendererByExtension } from '../registry/registry';
-
-// ── 类型 ──────────────────────────────────────
-
-interface VfsNode {
-  id: number;
-  name: string;
-  node_type: 'file' | 'folder' | 'run';
-  size: number | null;
-  modified_at: string;
-}
-
-// ── API ───────────────────────────────────────
-
-const vfs = {
-  async listChildren(path: string): Promise<VfsNode[]> {
-    return invoke<VfsNode[]>('vfs_list_dir', { path });
-  },
-  async createDir(path: string): Promise<void> {
-    return invoke<void>('vfs_create_dir', { path });
-  },
-  async createFile(path: string): Promise<void> {
-    return invoke<void>('vfs_write', { path, content: '' });
-  },
-  async deleteNode(path: string): Promise<void> {
-    return invoke<void>('vfs_delete', { path });
-  },
-};
+import { listDir, createDir, writeFile, deleteNode } from '../api/vfs';
+import { useToast } from '../hooks/useToast';
+import ConfirmDialog from '../components/ConfirmDialog';
+import NewScriptDialog from '../components/NewScriptDialog';
+import type { VfsNode } from '../types';
+import styles from './Sidebar.module.css';
 
 // ── 辅助 ──────────────────────────────────────
 
@@ -60,17 +39,28 @@ function fmtSize(bytes: number | null): string {
 
 function Sidebar() {
   const navigate = useNavigate();
+  const { addToast } = useToast();
   const [rootNodes, setRootNodes] = useState<VfsNode[]>([]);
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set(['(vfs)/C']));
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<{
     node: VfsNode; path: string; x: number; y: number;
   } | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<{
+    node: VfsNode; path: string;
+  } | null>(null);
+  const [showNewScript, setShowNewScript] = useState(false);
   const [creating, setCreating] = useState<{
     parentPath: string; type: 'file' | 'folder';
   } | null>(null);
   const [newName, setNewName] = useState('');
   const [refreshKey, setRefreshKey] = useState(0);
+  const [searchQuery, setSearchQuery] = useState('');
+
+  // 过滤后的根节点列表
+  const filteredRootNodes = searchQuery.trim()
+    ? rootNodes.filter(n => n.name.toLowerCase().includes(searchQuery.toLowerCase()))
+    : rootNodes;
 
   // ref 保持最新值
   const creatingRef = useRef(creating);
@@ -79,8 +69,12 @@ function Sidebar() {
   newNameRef.current = newName;
 
   const refreshRoot = useCallback(async () => {
-    const nodes = await vfs.listChildren('(vfs)/C');
-    setRootNodes(nodes);
+    try {
+      const nodes = await listDir('(vfs)/C');
+      setRootNodes(nodes);
+    } catch (err) {
+      logError(`Sidebar: 加载根目录失败: ${err}`);
+    }
   }, []);
 
   useEffect(() => {
@@ -95,17 +89,23 @@ function Sidebar() {
     if (!name || !currentCreating) return;
 
     const fullPath = `${currentCreating.parentPath}/${name}`;
-    if (currentCreating.type === 'folder') {
-      await vfs.createDir(fullPath);
-    } else {
-      await vfs.createFile(fullPath);
+    try {
+      if (currentCreating.type === 'folder') {
+        await createDir(fullPath);
+      } else {
+        await writeFile(fullPath, '');
+      }
+      addToast('success', `已创建: ${name}`);
+    } catch (err) {
+      logError(`Sidebar: 创建失败: ${err}`);
+      addToast('error', `创建失败: ${err}`);
     }
     setExpandedPaths(prev => new Set([...prev, currentCreating.parentPath]));
     await refreshRoot();
     setRefreshKey(k => k + 1);
     setCreating(null);
     setNewName('');
-  }, [refreshRoot]);
+  }, [refreshRoot, addToast]);
 
   const handleDoubleClick = useCallback((node: VfsNode, path: string) => {
     if (node.node_type === 'folder' || node.node_type === 'run') {
@@ -118,7 +118,8 @@ function Sidebar() {
       const ext = '.' + (node.name.split('.').pop() ?? '');
       const renderer = getRendererByExtension(ext);
       if (renderer) {
-        navigate(`/app/${renderer.name}/${node.id}`);
+        // path 已是完整 VFS 路径如 (vfs)/C/folder/script.py，编码后放入 URL
+        navigate(`/app/${renderer.name}/${encodeURIComponent(path)}`);
       }
     }
   }, [navigate]);
@@ -137,18 +138,50 @@ function Sidebar() {
 
   const closeContextMenu = useCallback(() => setContextMenu(null), []);
 
+  // 从模板创建脚本
+  const handleCreateFromTemplate = useCallback(async (code: string, _templateName: string) => {
+    setShowNewScript(false);
+    // 生成默认文件名
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const name = `script_${timestamp}.py`;
+    const fullPath = `(vfs)/C/${name}`;
+    try {
+      await writeFile(fullPath, code);
+      addToast('success', `已创建: ${name}`);
+      await refreshRoot();
+      setRefreshKey(k => k + 1);
+    } catch (err) {
+      logError(`Sidebar: 创建脚本失败: ${err}`);
+      addToast('error', `创建失败: ${err}`);
+    }
+  }, [refreshRoot, addToast]);
+
   const handleDelete = useCallback(async () => {
     if (!contextMenu) return;
-    await vfs.deleteNode(contextMenu.path);
+    // 先关闭右键菜单，弹出确认对话框
+    setConfirmDelete({ node: contextMenu.node, path: contextMenu.path });
+    setContextMenu(null);
+  }, [contextMenu]);
+
+  // 确认删除后的实际操作
+  const confirmDeleteAction = useCallback(async () => {
+    if (!confirmDelete) return;
+    try {
+      await deleteNode(confirmDelete.path);
+      addToast('success', `已删除: ${confirmDelete.node.name}`);
+    } catch (err) {
+      logError(`Sidebar: 删除失败: ${err}`);
+      addToast('error', `删除失败: ${err}`);
+    }
     setExpandedPaths(prev => {
       const next = new Set(prev);
-      next.delete(contextMenu.path);
+      next.delete(confirmDelete.path);
       return next;
     });
     await refreshRoot();
     setRefreshKey(k => k + 1);
-    setContextMenu(null);
-  }, [contextMenu, refreshRoot]);
+    setConfirmDelete(null);
+  }, [confirmDelete, refreshRoot, addToast]);
 
   const handleStartCreate = useCallback(
     (parentPath: string, type: 'file' | 'folder') => {
@@ -182,6 +215,11 @@ function Sidebar() {
         <div className="sidebar-toolbar__actions">
           <button
             className="icon-btn"
+            title="新建 Python 脚本"
+            onClick={() => setShowNewScript(true)}
+          >📄+</button>
+          <button
+            className="icon-btn"
             title="新建文件夹"
             onClick={() => handleStartCreate('(vfs)/C', 'folder')}
           >📁+</button>
@@ -196,14 +234,24 @@ function Sidebar() {
         </div>
       </div>
 
+      {/* 搜索过滤 */}
+      <div className={styles.searchBox}>
+        <input
+          className={styles.searchInput}
+          placeholder="🔍 搜索文件..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+        />
+      </div>
+
       <div className="sidebar-tree">
         <TreeNode
-          node={{ id: 0, name: 'C:', node_type: 'folder', size: null, modified_at: '' }}
+          node={{ id: 0, name: 'C:', node_type: 'folder', size: null, modified_at: '', version: '0.1.0' }}
           path="(vfs)/C"
           depth={0}
           expandedPaths={expandedPaths}
           selectedPath={selectedPath}
-          preloadedChildren={rootNodes}
+          preloadedChildren={filteredRootNodes}
           refreshKey={refreshKey}
           onClick={stableClick}
           onDoubleClick={stableDoubleClick}
@@ -212,10 +260,10 @@ function Sidebar() {
         />
 
         {creating && (
-          <div style={{ padding: `2px 8px 2px 24px` }}>
+          <div className={styles.inlineForm}>
             <form onSubmit={e => { e.preventDefault(); submitCreate(); }}>
               <input
-                className="tree-input"
+                className={styles.inlineInput}
                 autoFocus
                 value={newName}
                 onChange={e => setNewName(e.target.value)}
@@ -247,6 +295,24 @@ function Sidebar() {
           </div>
         </div>
       )}
+
+      {/* 确认删除对话框 */}
+      <ConfirmDialog
+        open={confirmDelete !== null}
+        title="确认删除"
+        message={`确定要删除「${confirmDelete?.node.name ?? ''}」吗？此操作不可撤销。`}
+        danger
+        confirmLabel="删除"
+        onConfirm={confirmDeleteAction}
+        onCancel={() => setConfirmDelete(null)}
+      />
+
+      {/* 新建脚本对话框 */}
+      <NewScriptDialog
+        open={showNewScript}
+        onSelect={handleCreateFromTemplate}
+        onCancel={() => setShowNewScript(false)}
+      />
     </aside>
   );
 }
@@ -299,7 +365,9 @@ const TreeNode = memo(function TreeNode({
       if (preloadedChildren !== undefined && node.id === 0) {
         setChildren(preloadedChildren);
       } else {
-        vfs.listChildren(path).then(setChildren);
+        listDir(path).then(setChildren).catch((err) => {
+          logError(`Sidebar: 加载子节点失败 (${path}): ${err}`);
+        });
       }
     }
   }, [isExpanded, isFolder, children, path, preloadedChildren, node.id]);

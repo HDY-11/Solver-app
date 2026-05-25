@@ -30,41 +30,6 @@ pub fn vfs_root(volume: &str) -> PathBuf {
     PathBuf::from(format!("{}/{}", VFS_PREFIX, volume))
 }
 
-/// 构造工作台路径。
-pub fn workspace_path(workspace: &str) -> PathBuf {
-    vfs_path("C", workspace)
-}
-
-/// 构造工作台内脚本目录路径。
-pub fn workspace_scripts(workspace: &str) -> PathBuf {
-    vfs_path("C", &format!("{}/{}", workspace, super::paths::SCRIPTS_DIR_NAME))
-}
-
-/// 构造工作台内运行结果目录路径。
-pub fn workspace_runs(workspace: &str) -> PathBuf {
-    vfs_path("C", &format!("{}/{}", workspace, super::paths::RUN_RESULTS_DIR_NAME))
-}
-
-/// 构造某次运行的目录路径。
-pub fn run_dir(workspace: &str, run_id: i64) -> PathBuf {
-    vfs_path("C", &format!(
-        "{}/{}/run_{:04}",
-        workspace,
-        super::paths::RUN_RESULTS_DIR_NAME,
-        run_id
-    ))
-}
-
-/// 构造资料区（B 盘）路径。
-pub fn storage_path(path: &str) -> PathBuf {
-    vfs_path("B", path)
-}
-
-/// 构造临时路径标识（用于标记临时导出的文件）。
-pub fn temp_path(name: &str) -> PathBuf {
-    PathBuf::from(format!("(tmp)/{}", name))
-}
-
 // ── 判断 ────────────────────────────────────────
 
 /// 判断是否为 VFS 虚拟路径。
@@ -145,7 +110,6 @@ mod tests {
     fn test_is_vfs() {
         assert!(is_vfs(&vfs_path("C", "test.py")));
         assert!(!is_vfs(Path::new("/home/user/test.py")));
-        assert!(is_temp(&temp_path("abc")));
     }
 
     #[test]
@@ -168,15 +132,5 @@ mod tests {
             vfs_components(&p),
             Some(vec!["脚本".to_string(), "子目录".to_string(), "model.py".to_string()])
         );
-    }
-
-    #[test]
-    fn test_run_dir() {
-        let p = run_dir("工作台", 42);
-        let s = p.to_string_lossy();
-        assert!(s.starts_with("(vfs)/C/"));
-        assert!(s.contains("工作台"));
-        assert!(s.contains("运行结果"));
-        assert!(s.contains("run_0042"));
     }
 }

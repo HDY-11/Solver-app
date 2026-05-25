@@ -40,29 +40,29 @@
   --gray-900: #111827;
   --gray-950: #0B0F19;
   --gray-1000: #1E1E1E;
-  
+
   /* ===== 品牌色（主色）===== */
   --primary: #2563EB;          /* 蓝色主色调 */
   --primary-light: #3B82F6;    /* 悬停变亮 */
   --primary-dark: #1D4ED8;     /* 点击变深 */
   --primary-bg: #EFF6FF;       /* 浅色背景 */
-  
+
   /* ===== 功能色 ===== */
   --success: #10B981;          /* 成功绿 */
   --success-light: #34D399;
   --success-dark: #059669;
   --success-bg: #ECFDF5;
-  
+
   --warning: #F59E0B;          /* 警告橙 */
   --warning-light: #FBBF24;
   --warning-dark: #D97706;
   --warning-bg: #FFFBEB;
-  
+
   --danger: #EF4444;           /* 危险红 */
   --danger-light: #F87171;
   --danger-dark: #DC2626;
   --danger-bg: #FEF2F2;
-  
+
   --info: #6366F1;             /* 信息紫 */
   --info-light: #818CF8;
   --info-dark: #4F46E5;
@@ -87,4 +87,21 @@
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
+}
+
+/* ===== 亮色主题覆盖 ===== */
+[data-theme="light"] {
+  --gray-0: #FFFFFF;
+  --gray-50: #F9FAFB;
+  --gray-100: #F3F4F6;
+  --gray-200: #E5E7EB;
+  --gray-300: #D1D5DB;
+  --gray-400: #9CA3AF;
+  --gray-500: #6B7280;
+  --gray-600: #4B5563;
+  --gray-700: #374151;
+  --gray-800: #1F2937;
+  --gray-900: #111827;
+  --gray-950: #0B0F19;
+  --gray-1000: #1E1E1E;
 }

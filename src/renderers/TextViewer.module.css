@@ -1,0 +1,16 @@
+/* TextViewer.module.css */
+
+.container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.editorArea {
+  flex: 1;
+}
+
+.placeholder {
+  padding: 24px;
+  color: var(--gray-500);
+}

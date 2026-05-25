@@ -247,8 +247,19 @@ pub(crate) fn update_node_storage(conn: &rusqlite::Connection, id: i64, offset: 
     log::debug!("[VFS-query] update_node_storage: id={}, offset={}, size={}, hash={}", 
         id, offset, size, hash);
 
+    // 递增版本号：每次写入 patch 号 +1（格式 MAJOR.MINOR.PATCH）
+    // 与 storage_offset/size/hash 在同一事务中更新，保证一致性
     conn.execute(
-        "UPDATE nodes SET storage_offset = ?, size = ?, content_hash = ?, modified_at = datetime('now') WHERE id = ?",
+        "UPDATE nodes SET storage_offset = ?, size = ?, content_hash = ?,
+            version = printf('%d.%d.%d',
+                CAST(substr(version, 1, instr(version, '.') - 1) AS INTEGER),
+                CAST(substr(version, instr(version, '.') + 1,
+                    instr(substr(version, instr(version, '.') + 1), '.') - 1) AS INTEGER),
+                CAST(substr(version,
+                    instr(version, '.') + instr(substr(version, instr(version, '.') + 1), '.') + 1
+                ) AS INTEGER) + 1),
+            modified_at = datetime('now')
+         WHERE id = ?",
         params![offset as i64, size as i64, hash, id],
     )
     .map_err(|e| {

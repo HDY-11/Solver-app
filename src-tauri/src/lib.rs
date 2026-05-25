@@ -1,4 +1,5 @@
 use std::cell::RefCell;
+use std::io::Write;
 use log_system::init_logging;
 use tauri::{Manager, command};
 use event_system::*;
@@ -23,13 +24,43 @@ fn save_script(code: String, path: String) -> Result<(), AppError> {
 
 #[command]
 async fn run_script(path: String) -> Result<String, AppError> {
-    let (stdout, stderr) = python_bridge::run_script(&path)
+    // VFS 路径需要先从 VFS 读取内容 → 写入临时文件 → 再用真实路径执行
+    let exec_path = if env::vfs_path::is_vfs(std::path::Path::new(&path)) {
+        let mut vf = vfs::VirFile::open(&path)
+            .map_err(|e| AppError::Io(e))
+            .inspect_log("从 VFS 打开脚本失败")?;
+        let mut content = String::new();
+        std::io::Read::read_to_string(&mut vf, &mut content)
+            .map_err(|e| AppError::Io(e))
+            .inspect_log("从 VFS 读取脚本失败")?;
+
+        // 保留原始扩展名，写入临时目录
+        let ext = std::path::Path::new(&path)
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("py");
+        let tmp_path = std::env::temp_dir()
+            .join(format!("solver_script_{}_{}.{}", std::process::id(), 
+                std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default().as_nanos(), ext));
+        let mut tmp_file = std::fs::File::create(&tmp_path)
+            .map_err(|e| AppError::Io(e))
+            .inspect_log("创建临时脚本文件失败")?;
+        tmp_file.write_all(content.as_bytes())
+            .map_err(|e| AppError::Io(e))
+            .inspect_log("写入临时脚本失败")?;
+        tmp_path.to_string_lossy().to_string()
+    } else {
+        path.clone()
+    };
+
+    let (stdout, stderr) = python_bridge::run_script(&exec_path)
         .await
         .map_err(|e| AppError::Python(e))
         .inspect_log("run_script failed")?;
 
     let payload = ScriptResultPayload {
-        path: path.clone(),
+        path,
         stdout: stdout.clone(),
         stderr: stderr.clone(),
     };

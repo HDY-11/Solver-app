@@ -1,0 +1,31 @@
+/* Sidebar.module.css */
+
+/* 搜索框 */
+.searchBox {
+  padding: 4px 8px;
+}
+
+.searchInput {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 4px 8px;
+  border: 1px solid var(--gray-300);
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-family: var(--font-mono);
+}
+
+/* 内联输入（创建文件/文件夹时） */
+.inlineForm {
+  padding: 2px 8px 2px 24px;
+}
+
+.inlineInput {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 2px 6px;
+  border: 1px solid var(--gray-300);
+  border-radius: 3px;
+  font-size: 0.75rem;
+  font-family: var(--font-mono);
+}

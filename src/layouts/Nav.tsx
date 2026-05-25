@@ -1,9 +1,8 @@
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import { getRenderer } from '../registry/registry';
 
 function Nav() {
   const { renderer, content } = useParams();
-  const navigate = useNavigate();
   const rendererDef = renderer ? getRenderer(renderer) : undefined;
 
   // 当前标签信息

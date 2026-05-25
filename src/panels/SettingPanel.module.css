@@ -1,0 +1,90 @@
+/* SettingPanel.module.css */
+
+.container {
+  padding: 32px;
+  max-width: 600px;
+  margin: 0 auto;
+  overflow: auto;
+  height: 100%;
+}
+
+.title {
+  font-size: 1.25rem;
+  margin: 0 0 24px;
+}
+
+.section {
+  margin-bottom: 24px;
+}
+
+.sectionTitle {
+  font-size: 1rem;
+  margin: 0 0 12px;
+  color: var(--gray-700);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--gray-200);
+}
+
+.label {
+  width: 100px;
+  font-size: 0.8125rem;
+  color: var(--gray-600);
+  flex-shrink: 0;
+}
+
+.input {
+  padding: 4px 8px;
+  border: 1px solid var(--gray-300);
+  border-radius: 4px;
+  font-size: 0.8125rem;
+  background: var(--gray-50);
+}
+
+.value {
+  font-size: 0.8125rem;
+  color: var(--gray-800);
+}
+
+.valueMono {
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  color: var(--gray-800);
+}
+
+.valueMonoSm {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--gray-800);
+}
+
+.progressBar {
+  background: var(--gray-200);
+  border-radius: 4px;
+  height: 6px;
+  margin-top: 8px;
+}
+
+.progressFill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.3s;
+}
+
+.progressFillSafe {
+  background: #4caf50;
+}
+
+.progressFillDanger {
+  background: #ff4444;
+}
+
+.errorHint {
+  color: var(--gray-500);
+  font-size: 0.8125rem;
+}

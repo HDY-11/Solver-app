@@ -1,0 +1,112 @@
+/* WelcomeView.module.css */
+
+.container {
+  padding: 40px;
+  max-width: 700px;
+  margin: 0 auto;
+  height: 100%;
+  overflow: auto;
+}
+
+.hero {
+  margin-bottom: 32px;
+}
+
+.heroTitle {
+  font-size: 1.5rem;
+  font-weight: 700;
+  margin: 0 0 8px;
+}
+
+.heroDesc {
+  color: var(--gray-500);
+  font-size: 0.875rem;
+}
+
+.section {
+  margin-bottom: 28px;
+}
+
+.sectionTitle {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--gray-700);
+  margin: 0 0 10px;
+}
+
+.loadingHint {
+  font-size: 0.75rem;
+  color: var(--gray-400);
+  margin-left: 8px;
+}
+
+.actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.emptyHint {
+  color: var(--gray-400);
+  font-size: 0.8125rem;
+}
+
+.fileList {
+  border: 1px solid var(--gray-200);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.fileItem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--gray-200);
+  font-size: 0.8125rem;
+  transition: background 0.15s;
+}
+
+.fileItem:last-child {
+  border-bottom: none;
+}
+
+.fileItem:hover {
+  background: var(--gray-100);
+}
+
+.fileName {
+  flex: 1;
+  font-family: var(--font-mono);
+}
+
+.fileSize {
+  color: var(--gray-400);
+  font-size: 0.75rem;
+}
+
+.statGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.statCard {
+  background: var(--gray-100);
+  border-radius: 8px;
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.statLabel {
+  font-size: 0.75rem;
+  color: var(--gray-500);
+}
+
+.statValue {
+  font-family: var(--font-mono);
+  font-size: 0.875rem;
+}

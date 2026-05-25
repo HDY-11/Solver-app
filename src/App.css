@@ -484,3 +484,219 @@ html, body, #root {
 .gap-4 { gap: var(--space-4); }
 .w-full { width: 100%; }
 .h-full { height: 100%; }
+
+/* ===== Toast 通知 ===== */
+.toast-container {
+  position: fixed;
+  bottom: 36px;
+  right: 16px;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 8px;
+  max-width: 400px;
+}
+
+.toast {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  font-size: 0.8125rem;
+  line-height: 1.4;
+  cursor: pointer;
+  animation: toast-in 0.25s ease-out;
+  transition: opacity 0.2s, transform 0.2s;
+}
+
+.toast:hover {
+  opacity: 0.9;
+}
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.toast__icon { font-size: 1rem; flex-shrink: 0; }
+.toast__message { flex: 1; word-break: break-word; }
+
+.toast__close {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  color: inherit;
+  font-size: 0.875rem;
+  cursor: pointer;
+  opacity: 0.6;
+  padding: 0 2px;
+}
+.toast__close:hover { opacity: 1; }
+
+/* 按类型的颜色 */
+.toast--success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+.toast--error   { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+.toast--warning { background: #fff3cd; color: #856404; border: 1px solid #ffeeba; }
+.toast--info    { background: #d1ecf1; color: #0c5460; border: 1px solid #bee5eb; }
+
+/* ===== Loading / EmptyState ===== */
+
+.loading-full {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: 12px;
+  color: var(--gray-500);
+}
+
+.loading-full__text {
+  font-size: 0.8125rem;
+}
+
+.loading-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8125rem;
+  color: var(--gray-500);
+}
+
+.loading-spinner {
+  display: inline-block;
+  border: 2px solid var(--gray-300);
+  border-top-color: var(--accent, #4a90d9);
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: 8px;
+  padding: 32px;
+  color: var(--gray-500);
+  text-align: center;
+}
+
+.empty-state__icon { font-size: 2.5rem; }
+.empty-state__title { font-size: 1rem; font-weight: 600; color: var(--gray-600); }
+.empty-state__desc { font-size: 0.8125rem; max-width: 320px; }
+.empty-state__action { margin-top: 8px; }
+
+/* ===== 确认对话框 ===== */
+
+.confirm-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+  animation: fade-in 0.15s ease-out;
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.confirm-dialog {
+  background: var(--gray-50);
+  border-radius: 12px;
+  padding: 24px;
+  min-width: 320px;
+  max-width: 420px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.2);
+}
+
+.confirm-dialog__title {
+  font-size: 1rem;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.confirm-dialog__message {
+  font-size: 0.8125rem;
+  color: var(--gray-600);
+  margin-bottom: 20px;
+  line-height: 1.5;
+}
+
+.confirm-dialog__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* ===== 快捷键面板 ===== */
+
+.shortcut-panel {
+  background: var(--gray-50);
+  border-radius: 12px;
+  padding: 20px 24px;
+  min-width: 320px;
+  max-width: 400px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.2);
+}
+
+.shortcut-panel__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 14px;
+}
+
+.shortcut-panel__header h3 {
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.shortcut-panel__list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.shortcut-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 4px 0;
+}
+
+.shortcut-item__keys {
+  background: var(--gray-200);
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+.shortcut-item__desc {
+  font-size: 0.8125rem;
+  color: var(--gray-600);
+}
+
+/* ===== Danger 按钮 ===== */
+
+.btn-danger {
+  background: #dc3545;
+  color: #fff;
+  border-color: #dc3545;
+}
+.btn-danger:hover {
+  background: #c82333;
+}
