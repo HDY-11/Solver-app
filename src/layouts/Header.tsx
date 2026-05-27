@@ -1,8 +1,48 @@
+// layouts/Header.tsx — 顶部导航栏 + 可交互地址栏
+
+import { useState, useCallback, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { getRendererByExtension } from '../registry/registry';
 
 function Header() {
   const navigate = useNavigate();
   const location = useLocation();
+  const [editValue, setEditValue] = useState('');
+  const [editing, setEditing] = useState(false);
+  const editingRef = useRef(false);
+  editingRef.current = editing;
+
+  const startEdit = useCallback(() => {
+    setEditValue(location.pathname + location.search);
+    setEditing(true);
+  }, [location]);
+
+  const commitEdit = useCallback(() => {
+    setEditing(false);
+    const raw = editValue.trim();
+    if (!raw) return;
+    const ext = '.' + (raw.split('.').pop() ?? '');
+    const renderer = getRendererByExtension(ext);
+    if (renderer) {
+      const vfsPath = raw.startsWith('(vfs)/') ? raw : `(vfs)/C/${raw}`;
+      navigate(`/app/${renderer.name}/${encodeURIComponent(vfsPath)}`);
+    } else {
+      navigate(raw);
+    }
+  }, [editValue, navigate]);
+
+  // 延迟 onBlur，避免点击前进/后退按钮时误提交
+  const handleBlur = useCallback(() => {
+    setTimeout(() => {
+      if (!editingRef.current) return; // 已经在 timeout 期间被其他操作取消
+      // 延迟后仍处于编辑状态 → 提交
+    }, 100);
+  }, []);
+
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') { e.preventDefault(); commitEdit(); }
+    if (e.key === 'Escape') setEditing(false);
+  }, [commitEdit]);
 
   return (
     <header className="app-header">
@@ -11,14 +51,16 @@ function Header() {
         <button onClick={() => navigate(1)} title="前进">→</button>
       </div>
       <input
+        className="header-address"
         style={{
-          flex: 1, margin: '0 12px', padding: '2px 8px',
-          border: '1px solid var(--gray-300)', borderRadius: 4,
-          fontSize: '0.8125rem', fontFamily: 'var(--font-mono)',
+          background: editing ? 'var(--gray-50)' : 'transparent',
         }}
-        value={location.pathname + location.search}
-        readOnly
-        placeholder="输入路径、命令或 URL"
+        value={editing ? editValue : location.pathname + location.search}
+        readOnly={!editing}
+        onClick={startEdit}
+        onBlur={handleBlur}
+        onKeyDown={handleKeyDown}
+        placeholder="输入 VFS 路径，如 script.py"
       />
     </header>
   );

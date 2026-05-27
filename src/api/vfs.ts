@@ -7,7 +7,7 @@
 
 import { invoke } from '@tauri-apps/api/core';
 import { error as logError, info as logInfo } from '@tauri-apps/plugin-log';
-import type { VfsNode, VfsInfo } from '../types';
+import type { VfsNode, VfsInfo, VfsVersion } from '../types';
 
 /** VFS 路径前缀，后端 vfs_* 命令要求此格式 */
 const VFS_PREFIX = '(vfs)/C';
@@ -82,6 +82,18 @@ export async function exists(filePath: string): Promise<boolean> {
   }
 }
 
+/** 重命名节点 */
+export async function renameFile(filePath: string, newName: string): Promise<void> {
+  const fullPath = buildPath(filePath);
+  logInfo(`[vfs] rename: ${fullPath} → ${newName}`);
+  try {
+    await invoke('vfs_rename', { path: fullPath, newName });
+  } catch (err) {
+    logError(`[vfs] rename 失败 (${fullPath}): ${err}`);
+    throw err;
+  }
+}
+
 /** 删除节点（软删除） */
 export async function deleteNode(filePath: string): Promise<void> {
   const fullPath = buildPath(filePath);
@@ -100,6 +112,48 @@ export async function getInfo(): Promise<VfsInfo> {
     return await invoke<VfsInfo>('vfs_info');
   } catch (err) {
     logError(`[vfs] getInfo 失败: ${err}`);
+    throw err;
+  }
+}
+
+// =========================================================================
+// 版本时间线
+// =========================================================================
+
+/** 获取文件的版本时间线列表，按时间倒序 */
+export async function listVersions(filePath: string): Promise<VfsVersion[]> {
+  const fullPath = buildPath(filePath);
+  try {
+    return await invoke<VfsVersion[]>('vfs_list_versions', { path: fullPath });
+  } catch (err) {
+    logError(`[vfs] listVersions 失败 (${fullPath}): ${err}`);
+    throw err;
+  }
+}
+
+/** 读取指定版本的内容（按 content_hash 标识） */
+export async function readVersion(filePath: string, contentHash: string): Promise<string> {
+  const fullPath = buildPath(filePath);
+  try {
+    return await invoke<string>('vfs_read_version', { path: fullPath, contentHash });
+  } catch (err) {
+    logError(`[vfs] readVersion 失败 (${fullPath}): ${err}`);
+    throw err;
+  }
+}
+
+// =========================================================================
+// 版本号管理
+// =========================================================================
+
+/** 设置文件版本号 */
+export async function setVersion(filePath: string, newVersion: string): Promise<void> {
+  const fullPath = buildPath(filePath);
+  logInfo(`[vfs] setVersion: ${fullPath} → ${newVersion}`);
+  try {
+    await invoke('vfs_set_version', { path: fullPath, newVersion });
+  } catch (err) {
+    logError(`[vfs] setVersion 失败 (${fullPath}): ${err}`);
     throw err;
   }
 }

@@ -1,14 +1,21 @@
-// layouts/Sidebar.tsx — VFS 文件树侧边栏
+// layouts/Sidebar.tsx — 侧边栏容器
+//
+// 根据左导航栏的模式切换内容：资源管理器 / 运行结果管理器。
+// 底部始终显示当前文件的时间线。
 
 import { useState, useEffect, useCallback, useRef, memo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { error as logError } from '@tauri-apps/plugin-log';
 import { getRendererByExtension } from '../registry/registry';
-import { listDir, createDir, writeFile, deleteNode } from '../api/vfs';
+import { listDir, createDir, writeFile, deleteNode, renameFile, setVersion } from '../api/vfs';
 import { useToast } from '../hooks/useToast';
 import ConfirmDialog from '../components/ConfirmDialog';
 import NewScriptDialog from '../components/NewScriptDialog';
+import TimelinePanel from '../components/TimelinePanel';
+import RunList from '../components/RunList';
 import type { VfsNode } from '../types';
+import { fmtSize } from '../types';
+import type { NavMode } from './NavBar';
 import styles from './Sidebar.module.css';
 
 // ── 辅助 ──────────────────────────────────────
@@ -24,20 +31,14 @@ function nodeIcon(node: VfsNode): string {
     png: '🖼️', jpg: '🖼️', svg: '🖼️',
     sav: '💾', h5: '💾', pkl: '💾',
     sh: '⚡', bat: '⚡', ps1: '⚡',
+    run: '📊',
   };
   return icons[ext] ?? '📄';
 }
 
-function fmtSize(bytes: number | null): string {
-  if (bytes === null || bytes === undefined) return '';
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
 // ── Sidebar ───────────────────────────────────
 
-function Sidebar() {
+function Sidebar({ mode }: { mode: NavMode }) {
   const navigate = useNavigate();
   const { addToast } = useToast();
   const [rootNodes, setRootNodes] = useState<VfsNode[]>([]);
@@ -49,6 +50,14 @@ function Sidebar() {
   const [confirmDelete, setConfirmDelete] = useState<{
     node: VfsNode; path: string;
   } | null>(null);
+  const [renaming, setRenaming] = useState<{
+    node: VfsNode; path: string;
+  } | null>(null);
+  const [renameValue, setRenameValue] = useState('');
+  const [versioning, setVersioning] = useState<{
+    node: VfsNode; path: string;
+  } | null>(null);
+  const [versionValue, setVersionValue] = useState('');
   const [showNewScript, setShowNewScript] = useState(false);
   const [creating, setCreating] = useState<{
     parentPath: string; type: 'file' | 'folder';
@@ -107,7 +116,8 @@ function Sidebar() {
     setNewName('');
   }, [refreshRoot, addToast]);
 
-  const handleDoubleClick = useCallback((node: VfsNode, path: string) => {
+  const handleClick = useCallback((node: VfsNode, path: string) => {
+    // 文件夹：切换展开；文件：直接打开
     if (node.node_type === 'folder' || node.node_type === 'run') {
       setExpandedPaths(prev => {
         const next = new Set(prev);
@@ -118,15 +128,16 @@ function Sidebar() {
       const ext = '.' + (node.name.split('.').pop() ?? '');
       const renderer = getRendererByExtension(ext);
       if (renderer) {
-        // path 已是完整 VFS 路径如 (vfs)/C/folder/script.py，编码后放入 URL
         navigate(`/app/${renderer.name}/${encodeURIComponent(path)}`);
       }
     }
+    setSelectedPath(path);
+    setContextMenu(null);
   }, [navigate]);
 
-  const handleClick = useCallback((_node: VfsNode, path: string) => {
-    setSelectedPath(prev => prev === path ? prev : path);
-    setContextMenu(null);
+  // 悬停高亮（纯视觉反馈，不改状态）
+  const handleHover = useCallback((path: string) => {
+    setSelectedPath(path);
   }, []);
 
   const handleContextMenu = useCallback(
@@ -158,10 +169,59 @@ function Sidebar() {
 
   const handleDelete = useCallback(async () => {
     if (!contextMenu) return;
-    // 先关闭右键菜单，弹出确认对话框
     setConfirmDelete({ node: contextMenu.node, path: contextMenu.path });
     setContextMenu(null);
   }, [contextMenu]);
+
+  // 开始重命名
+  const handleRename = useCallback(() => {
+    if (!contextMenu) return;
+    setRenaming({ node: contextMenu.node, path: contextMenu.path });
+    setRenameValue(contextMenu.node.name);
+    setContextMenu(null);
+  }, [contextMenu]);
+
+  // 提交重命名
+  const commitRename = useCallback(async () => {
+    if (!renaming || !renameValue.trim() || renameValue.trim() === renaming.node.name) {
+      setRenaming(null); return;
+    }
+    try {
+      await renameFile(renaming.path, renameValue.trim());
+      addToast('success', `已重命名为 ${renameValue.trim()}`);
+      await refreshRoot();
+      setRefreshKey(k => k + 1);
+    } catch (err) {
+      addToast('error', `重命名失败: ${err}`);
+    }
+    setRenaming(null);
+    setRenameValue('');
+  }, [renaming, renameValue, refreshRoot, addToast]);
+
+  // 开始编辑版本号
+  const handleVersionEdit = useCallback(() => {
+    if (!contextMenu) return;
+    setVersioning({ node: contextMenu.node, path: contextMenu.path });
+    setVersionValue(contextMenu.node.version);
+    setContextMenu(null);
+  }, [contextMenu]);
+
+  // 提交版本号
+  const commitVersion = useCallback(async () => {
+    if (!versioning || !versionValue.trim() || versionValue.trim() === versioning.node.version) {
+      setVersioning(null); return;
+    }
+    try {
+      await setVersion(versioning.path, versionValue.trim());
+      addToast('success', `版本号已更新: ${versionValue.trim()}`);
+      await refreshRoot();
+      setRefreshKey(k => k + 1);
+    } catch (err) {
+      addToast('error', `设置版本失败: ${err}`);
+    }
+    setVersioning(null);
+    setVersionValue('');
+  }, [versioning, versionValue, refreshRoot, addToast]);
 
   // 确认删除后的实际操作
   const confirmDeleteAction = useCallback(async () => {
@@ -190,19 +250,19 @@ function Sidebar() {
       setContextMenu(null);
     }, []);
 
-  // 稳定事件引用
+  // 稳定事件引用（供 memo 包裹的 TreeNode 使用）
   const handleClickRef = useRef(handleClick);
-  const handleDoubleClickRef = useRef(handleDoubleClick);
+  const handleHoverRef = useRef(handleHover);
   const handleContextMenuRef = useRef(handleContextMenu);
   handleClickRef.current = handleClick;
-  handleDoubleClickRef.current = handleDoubleClick;
+  handleHoverRef.current = handleHover;
   handleContextMenuRef.current = handleContextMenu;
 
   const stableClick = useCallback((node: VfsNode, path: string) => {
     handleClickRef.current(node, path);
   }, []);
-  const stableDoubleClick = useCallback((node: VfsNode, path: string) => {
-    handleDoubleClickRef.current(node, path);
+  const stableHover = useCallback((_n: VfsNode, path: string) => {
+    handleHoverRef.current(path);
   }, []);
   const stableContextMenu = useCallback((e: React.MouseEvent, node: VfsNode, path: string) => {
     handleContextMenuRef.current(e, node, path);
@@ -210,109 +270,103 @@ function Sidebar() {
 
   return (
     <aside className="app-sidebar" onClick={closeContextMenu}>
-      <div className="sidebar-toolbar">
-        <span className="sidebar-toolbar__title">工作台</span>
-        <div className="sidebar-toolbar__actions">
-          <button
-            className="icon-btn"
-            title="新建 Python 脚本"
-            onClick={() => setShowNewScript(true)}
-          >📄+</button>
-          <button
-            className="icon-btn"
-            title="新建文件夹"
-            onClick={() => handleStartCreate('(vfs)/C', 'folder')}
-          >📁+</button>
-          <button
-            className="icon-btn"
-            title="刷新"
-            onClick={() => {
-              refreshRoot();
-              setRefreshKey(k => k + 1);
-            }}
-          >🔄</button>
-        </div>
-      </div>
-
-      {/* 搜索过滤 */}
-      <div className={styles.searchBox}>
-        <input
-          className={styles.searchInput}
-          placeholder="🔍 搜索文件..."
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-        />
-      </div>
-
-      <div className="sidebar-tree">
-        <TreeNode
-          node={{ id: 0, name: 'C:', node_type: 'folder', size: null, modified_at: '', version: '0.1.0' }}
-          path="(vfs)/C"
-          depth={0}
-          expandedPaths={expandedPaths}
-          selectedPath={selectedPath}
-          preloadedChildren={filteredRootNodes}
-          refreshKey={refreshKey}
-          onClick={stableClick}
-          onDoubleClick={stableDoubleClick}
-          onContextMenu={stableContextMenu}
-          onCreateRequest={handleStartCreate}
-        />
-
-        {creating && (
-          <div className={styles.inlineForm}>
-            <form onSubmit={e => { e.preventDefault(); submitCreate(); }}>
-              <input
-                className={styles.inlineInput}
-                autoFocus
-                value={newName}
-                onChange={e => setNewName(e.target.value)}
-                onBlur={submitCreate}
-                placeholder={creating.type === 'folder' ? '文件夹名' : '文件名'}
-              />
-            </form>
+      {mode === 'files' ? (
+        <>
+          <div className="sidebar-toolbar">
+            <span className="sidebar-toolbar__title">工作台</span>
+            <div className="sidebar-toolbar__actions">
+              <button className="icon-btn" title="新建 Python 脚本"
+                onClick={() => setShowNewScript(true)}>📄+</button>
+              <button className="icon-btn" title="新建文件夹"
+                onClick={() => handleStartCreate('(vfs)/C', 'folder')}>📁+</button>
+              <button className="icon-btn" title="刷新"
+                onClick={() => { refreshRoot(); setRefreshKey(k => k + 1); }}>🔄</button>
+            </div>
           </div>
-        )}
-      </div>
-
-      {contextMenu && (
-        <div className="context-menu" style={{ left: contextMenu.x, top: contextMenu.y }}>
-          {contextMenu.node.node_type === 'folder' && (
-            <>
-              <div className="context-menu__item"
-                onClick={() => handleStartCreate(contextMenu.path, 'file')}>
-                📄 新建文件
+          <div className={styles.searchBox}>
+            <input className={styles.searchInput} placeholder="🔍 搜索文件..."
+              value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
+          </div>
+          <div className="sidebar-tree">
+            <TreeNode
+              node={{ id: 0, name: 'C:', node_type: 'folder', size: null, modified_at: '', version: '0.1.0' }}
+              path="(vfs)/C" depth={0} expandedPaths={expandedPaths} selectedPath={selectedPath}
+              preloadedChildren={filteredRootNodes} refreshKey={refreshKey}
+              onClick={stableClick} onHover={stableHover} onContextMenu={stableContextMenu} />
+            {creating && (
+              <div className={styles.inlineForm}>
+                <form onSubmit={e => { e.preventDefault(); submitCreate(); }}>
+                  <input className={styles.inlineInput} autoFocus value={newName}
+                    onChange={e => setNewName(e.target.value)} onBlur={submitCreate}
+                    placeholder={creating.type === 'folder' ? '文件夹名' : '文件名'} />
+                </form>
               </div>
-              <div className="context-menu__item"
-                onClick={() => handleStartCreate(contextMenu.path, 'folder')}>
-                📁 新建文件夹
-              </div>
-              <div className="context-menu__divider" />
-            </>
+            )}
+          </div>
+          {contextMenu && (
+            <div className="context-menu" style={{ left: contextMenu.x, top: contextMenu.y }}>
+              {contextMenu.node.node_type === 'folder' && (<>
+                <div className="context-menu__item" onClick={() => handleStartCreate(contextMenu.path, 'file')}>📄 新建文件</div>
+                <div className="context-menu__item" onClick={() => handleStartCreate(contextMenu.path, 'folder')}>📁 新建文件夹</div>
+                <div className="context-menu__divider" />
+              </>)}
+              <div className="context-menu__item" onClick={handleRename}>✏️ 重命名</div>
+              <div className="context-menu__item" onClick={handleVersionEdit}>🏷️ 设置版本</div>
+              <div className="context-menu__item" onClick={handleDelete}>🗑️ 删除</div>
+            </div>
           )}
-          <div className="context-menu__item" onClick={handleDelete}>
-            🗑️ 删除
-          </div>
-        </div>
+          <NewScriptDialog open={showNewScript} onSelect={handleCreateFromTemplate}
+            onCancel={() => setShowNewScript(false)} />
+          <ConfirmDialog open={confirmDelete !== null} title="确认删除"
+            message={`确定要删除「${confirmDelete?.node.name ?? ''}」吗？此操作不可撤销。`}
+            danger confirmLabel="删除" onConfirm={confirmDeleteAction}
+            onCancel={() => setConfirmDelete(null)} />
+          {renaming && (
+            <div className="confirm-overlay" onClick={() => setRenaming(null)}>
+              <div className="confirm-dialog" style={{ minWidth: 300 }} onClick={e => e.stopPropagation()}>
+                <h3 style={{ fontSize: '0.875rem', fontWeight: 600, marginBottom: 10 }}>✏️ 重命名</h3>
+                <input
+                  autoFocus
+                  className="tree-input"
+                  style={{ width: '100%', boxSizing: 'border-box', padding: '6px 10px', marginBottom: 14, border: '1px solid var(--gray-300)', borderRadius: 6, fontSize: '0.875rem', fontFamily: 'var(--font-mono)' }}
+                  value={renameValue}
+                  onChange={e => setRenameValue(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') commitRename(); if (e.key === 'Escape') setRenaming(null); }}
+                />
+                <div className="confirm-dialog__actions">
+                  <button className="btn btn-sm" onClick={() => setRenaming(null)}>取消</button>
+                  <button className="btn btn-primary btn-sm" onClick={commitRename}>确定</button>
+                </div>
+              </div>
+            </div>
+          )}
+          {versioning && (
+            <div className="confirm-overlay" onClick={() => setVersioning(null)}>
+              <div className="confirm-dialog" style={{ minWidth: 300 }} onClick={e => e.stopPropagation()}>
+                <h3 style={{ fontSize: '0.875rem', fontWeight: 600, marginBottom: 10 }}>🏷️ 设置版本号</h3>
+                <input
+                  autoFocus
+                  style={{ width: '100%', boxSizing: 'border-box', padding: '6px 10px', marginBottom: 14, border: '1px solid var(--gray-300)', borderRadius: 6, fontSize: '0.875rem', fontFamily: 'var(--font-mono)' }}
+                  value={versionValue}
+                  onChange={e => setVersionValue(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') commitVersion(); if (e.key === 'Escape') setVersioning(null); }}
+                  placeholder="例如: 1.0.0"
+                />
+                <div className="confirm-dialog__actions">
+                  <button className="btn btn-sm" onClick={() => setVersioning(null)}>取消</button>
+                  <button className="btn btn-primary btn-sm" onClick={commitVersion}>确定</button>
+                </div>
+              </div>
+            </div>
+          )}
+        </>
+      ) : (
+        <RunList />
       )}
 
-      {/* 确认删除对话框 */}
-      <ConfirmDialog
-        open={confirmDelete !== null}
-        title="确认删除"
-        message={`确定要删除「${confirmDelete?.node.name ?? ''}」吗？此操作不可撤销。`}
-        danger
-        confirmLabel="删除"
-        onConfirm={confirmDeleteAction}
-        onCancel={() => setConfirmDelete(null)}
-      />
-
-      {/* 新建脚本对话框 */}
-      <NewScriptDialog
-        open={showNewScript}
-        onSelect={handleCreateFromTemplate}
-        onCancel={() => setShowNewScript(false)}
-      />
+      {/* 时间线面板：两种模式共享 */}
+      <div className="sidebar-divider" />
+      <TimelinePanel />
     </aside>
   );
 }
@@ -322,7 +376,7 @@ function Sidebar() {
 const TreeNode = memo(function TreeNode({
   node, path, depth, expandedPaths, selectedPath,
   preloadedChildren, refreshKey,
-  onClick, onDoubleClick, onContextMenu, onCreateRequest,
+  onClick, onHover, onContextMenu,
 }: {
   node: VfsNode;
   path: string;
@@ -332,9 +386,8 @@ const TreeNode = memo(function TreeNode({
   preloadedChildren?: VfsNode[];
   refreshKey: number;
   onClick: (node: VfsNode, path: string) => void;
-  onDoubleClick: (node: VfsNode, path: string) => void;
+  onHover: (node: VfsNode, path: string) => void;
   onContextMenu: (e: React.MouseEvent, node: VfsNode, path: string) => void;
-  onCreateRequest: (parentPath: string, type: 'file' | 'folder') => void;
 }) {
   const [children, setChildren] = useState<VfsNode[] | null>(
     preloadedChildren !== undefined ? preloadedChildren : null
@@ -383,7 +436,7 @@ const TreeNode = memo(function TreeNode({
         className={nodeClasses}
         style={{ paddingLeft: 8 + depth * 16 }}
         onClick={() => onClick(node, path)}
-        onDoubleClick={() => onDoubleClick(node, path)}
+        onMouseEnter={() => onHover(node, path)}
         onContextMenu={e => onContextMenu(e, node, path)}
       >
         {isFolder && (
@@ -392,6 +445,9 @@ const TreeNode = memo(function TreeNode({
         {!isFolder && <span className="tree-node__arrow" />}
         <span className="tree-node__icon">{nodeIcon(node)}</span>
         <span className="tree-node__name">{node.name}</span>
+        {node.node_type !== 'folder' && (
+          <span className="tree-node__version">v{node.version}</span>
+        )}
         {node.size != null && (
           <span className="tree-node__size">{fmtSize(node.size)}</span>
         )}
@@ -409,9 +465,8 @@ const TreeNode = memo(function TreeNode({
               selectedPath={selectedPath}
               refreshKey={refreshKey}
               onClick={onClick}
-              onDoubleClick={onDoubleClick}
+              onHover={onHover}
               onContextMenu={onContextMenu}
-              onCreateRequest={onCreateRequest}
             />
           ))}
           {children?.length === 0 && (

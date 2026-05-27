@@ -1,49 +1,48 @@
 // windows/WindowManager.tsx — 多窗口管理
 //
-// 管理"分离窗口"功能：将当前编辑器内容在新的独立窗口中打开。
-// 使用 Tauri v2 WebviewWindow API 创建独立窗口。
+// 监听 PythonEditor 的"分离窗口"事件，尝试创建独立 Tauri WebviewWindow。
 
 import { useEffect } from 'react';
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { error as logError, info as logInfo } from '@tauri-apps/plugin-log';
 import { useWindow } from '../hooks/useWindow';
 
-/**
- * 创建独立窗口显示指定 VFS 文件。
- * 新窗口加载相同前端，通过 URL 参数 `/app/window/py/{nodeId}` 进入编辑器。
- */
 async function openDetachedWindow(nodeId: string, label: string): Promise<void> {
-  // 窗口标签必须唯一，用 nodeId 和时间戳组合
   const windowLabel = `editor-${nodeId}-${Date.now()}`;
 
   try {
     const webview = new WebviewWindow(windowLabel, {
-      url: `/app/window/py/${nodeId}`,
+      url: `/app/py/${nodeId}`,
       title: `Solver — ${label}`,
       width: 900,
       height: 650,
       minWidth: 500,
       minHeight: 350,
-      // 复用已安装的插件权限
     });
 
-    // 等待窗口创建完成
-    await webview.once('tauri://created', () => {
+    // WebviewWindow 构造函数不抛异常，通过事件通知结果
+    webview.once('tauri://created', () => {
       logInfo(`WindowManager: 分离窗口已创建: ${windowLabel}`);
     });
-
-    webview.once('tauri://error', (e) => {
-      logError(`WindowManager: 窗口创建失败: ${e}`);
+    webview.once('tauri://error', (e: unknown) => {
+      const msg = typeof e === 'string' ? e : JSON.stringify(e);
+      logError(`WindowManager: 窗口创建失败: ${msg}`);
+      // 通知前端显示 toast
+      window.dispatchEvent(new CustomEvent('toast', {
+        detail: { type: 'error', message: '分离窗口失败（可能缺少多窗口支持）' },
+      }));
     });
   } catch (err) {
-    logError(`WindowManager: 创建窗口失败: ${err}`);
+    logError(`WindowManager: 创建窗口异常: ${err}`);
+    window.dispatchEvent(new CustomEvent('toast', {
+      detail: { type: 'error', message: `分离窗口失败: ${err}` },
+    }));
   }
 }
 
 function WindowManager() {
   const { detachWindow } = useWindow();
 
-  // 监听自定义事件，由 PythonEditor toolbar 触发
   useEffect(() => {
     const handler = (e: Event) => {
       const { nodeId, label } = (e as CustomEvent).detail as {
@@ -57,7 +56,7 @@ function WindowManager() {
     return () => window.removeEventListener('detach-window', handler);
   }, [detachWindow]);
 
-  return null; // 纯逻辑组件，无 UI
+  return null;
 }
 
 export default WindowManager;

@@ -32,8 +32,40 @@ export interface ScriptResultPayload {
   stderr: string;
 }
 
+/** .run 文件中存储的运行记录内容 */
+export interface RunRecordContent {
+  script_path: string;
+  script_version: string;
+  stdout: string;
+  stderr: string;
+}
+
+// =========================================================================
+// 工具函数
+// =========================================================================
+
+/** 格式化字节大小为可读字符串 */
+export function fmtSize(bytes: number | null | undefined): string {
+  if (bytes == null) return '';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 // =========================================================================
 // 主题类型
 // =========================================================================
 
 export type Theme = 'light' | 'dark';
+
+// =========================================================================
+// 版本时间线
+// =========================================================================
+
+/** 后端 vfs_list_versions 返回的版本信息 */
+export interface VfsVersion {
+  node_id: number;
+  content_hash: string;
+  size: number;
+  created_at: string;
+}

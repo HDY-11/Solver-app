@@ -1,19 +1,17 @@
 use std::io;
-use std::path::{Path, PathBuf};
-use std::sync::{Arc, OnceLock};
+use std::path::Path;
+use std::sync::OnceLock;
 use dashmap::DashMap;
 use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;
 use error_system::ResultLogExt;
 use crate::pool::DataFilePool;
-use crate::query;
 
 static VFS: OnceLock<VirtualFileSystem> = OnceLock::new();
 
 pub(crate) struct VirtualFileSystem {
     pub(crate) db_pool: Pool<SqliteConnectionManager>,
     pub(crate) blob_pools: DashMap<String, DataFilePool>,
-    pub(crate) db_path: PathBuf,
 }
 
 impl VirtualFileSystem {
@@ -72,8 +70,11 @@ impl VirtualFileSystem {
 
                 CREATE INDEX IF NOT EXISTS idx_nodes_parent ON nodes(parent_id);
                 CREATE INDEX IF NOT EXISTS idx_nodes_hash ON nodes(content_hash);
+                -- 迁移：删除旧约束 (parent_id, name, volume)
+                DROP INDEX IF EXISTS idx_nodes_name;
+                -- 新约束：同一目录下 (name, version) 唯一
                 CREATE UNIQUE INDEX IF NOT EXISTS idx_nodes_name
-                    ON nodes(parent_id, name, volume) WHERE deleted = 0;
+                    ON nodes(name, version, parent_id) WHERE deleted = 0;
 
                 -- 版本时间线表
                 CREATE TABLE IF NOT EXISTS node_versions (
@@ -95,6 +96,7 @@ impl VirtualFileSystem {
             log::debug!("[VFS-core]   建表完成");
 
             // 4. 插入卷根节点
+            #[allow(unused_variables)]
             for &(volume, max_size) in volumes {
                 let root_name = format!("{}:", volume);
                 log::debug!("[VFS-core]   检查卷根节点: name='{}', volume='{}'", root_name, volume);
@@ -150,7 +152,6 @@ impl VirtualFileSystem {
         let vfs = Self {
             db_pool: pool,
             blob_pools,
-            db_path: db_path.to_path_buf(),
         };
 
         log::debug!("[VFS-core]   设置全局单例...");
@@ -188,7 +189,4 @@ impl VirtualFileSystem {
             })
     }
 
-    pub(crate) fn db(&self) -> &Pool<SqliteConnectionManager> {
-        &self.db_pool
-    }
 }

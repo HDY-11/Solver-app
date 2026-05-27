@@ -1,132 +1,75 @@
-// components/NewScriptDialog.tsx — 新建脚本对话框
+// components/NewScriptDialog.tsx — 新建文件对话框
 //
-// 提供脚本模板选择：空白脚本 / 数据分析 / simple_motion 物理仿真。
+// 支持创建任意类型文件。输入文件名（含扩展名），预设模板快速填充。
 
 import { useState } from 'react';
 
-// =========================================================================
-// 模板定义
-// =========================================================================
-
-interface ScriptTemplate {
-  id: string;
-  name: string;
-  icon: string;
-  description: string;
-  code: string;
-}
-
-const TEMPLATES: ScriptTemplate[] = [
-  {
-    id: 'blank',
-    name: '空白脚本',
-    icon: '📄',
-    description: '从空文件开始',
-    code: '# 新建 Python 脚本\n\n',
-  },
-  {
-    id: 'data',
-    name: '数据分析',
-    icon: '📊',
-    description: '含 pandas / numpy / matplotlib 导入',
-    code: `# 数据分析脚本
-import numpy as np
-import pandas as pd
-import matplotlib.pyplot as plt
-
-# 在此编写分析代码
-
-`,
-  },
-  {
-    id: 'motion',
-    name: '物理仿真',
-    icon: '⚛️',
-    description: '含 simple_motion 导入',
-    code: `# simple_motion 物理仿真脚本
-from simple_motion import Motion, Particle3
-
-motion = Motion()
-# 创建粒子并添加力模型...
-
-`,
-  },
+const PRESETS = [
+  { ext: '.py', icon: '🐍', label: 'Python', template: '# 新建脚本\n\n' },
+  { ext: '.txt', icon: '📄', label: '文本', template: '' },
+  { ext: '.json', icon: '📦', label: 'JSON', template: '{\n  \n}\n' },
+  { ext: '.md', icon: '📝', label: 'Markdown', template: '# \n\n' },
 ];
 
-// =========================================================================
-// 组件
-// =========================================================================
+const DEFAULT_TEMPLATE = '';
 
-interface NewScriptDialogProps {
+interface Props {
   open: boolean;
   onSelect: (code: string, name: string) => void;
   onCancel: () => void;
 }
 
-function NewScriptDialog({ open, onSelect, onCancel }: NewScriptDialogProps) {
-  const [selectedId, setSelectedId] = useState('blank');
+function NewScriptDialog({ open, onSelect, onCancel }: Props) {
+  const [name, setName] = useState('');
+  const [selectedPreset, setSelectedPreset] = useState(0);
 
   if (!open) return null;
 
-  const selected = TEMPLATES.find(t => t.id === selectedId)!;
+  const handleCreate = () => {
+    const finalName = name.trim() || `untitled${PRESETS[selectedPreset].ext}`;
+    const template = name.trim() ? (PRESETS.find(p => finalName.endsWith(p.ext))?.template ?? DEFAULT_TEMPLATE) : PRESETS[selectedPreset].template;
+    onSelect(template, finalName);
+  };
 
   return (
     <div className="confirm-overlay" onClick={onCancel}>
-      <div className="confirm-dialog" style={{ minWidth: 420 }} onClick={(e) => e.stopPropagation()}>
-        <h3 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: 16 }}>
-          🐍 新建 Python 脚本
-        </h3>
+      <div className="confirm-dialog" style={{ minWidth: 360 }} onClick={e => e.stopPropagation()}>
+        <h3 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: 12 }}>📄 新建文件</h3>
 
-        {/* 模板列表 */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 16 }}>
-          {TEMPLATES.map(t => (
-            <div
-              key={t.id}
-              onClick={() => setSelectedId(t.id)}
-              style={{
-                display: 'flex', alignItems: 'center', gap: 10,
-                padding: '8px 12px', borderRadius: 8, cursor: 'pointer',
-                border: `1px solid ${selectedId === t.id ? 'var(--primary)' : 'var(--gray-200)'}`,
-                background: selectedId === t.id ? 'var(--primary-bg)' : 'transparent',
-                transition: 'border-color 0.15s, background 0.15s',
-              }}
+        <input
+          autoFocus
+          value={name}
+          onChange={e => setName(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && handleCreate()}
+          placeholder="输入文件名，如 script.py"
+          style={{
+            width: '100%', boxSizing: 'border-box',
+            padding: '6px 10px', marginBottom: 10,
+            border: '1px solid var(--gray-300)', borderRadius: 6,
+            fontSize: '0.875rem', fontFamily: 'var(--font-mono)',
+          }}
+        />
+
+        <div style={{ display: 'flex', gap: 6, marginBottom: 16, flexWrap: 'wrap' }}>
+          {PRESETS.map((p, i) => (
+            <button
+              key={p.ext}
+              className={`btn btn-sm ${i === selectedPreset ? 'btn-primary' : ''}`}
+              onClick={() => { setSelectedPreset(i); if (!name.trim()) setName(`untitled${p.ext}`); }}
             >
-              <span style={{ fontSize: '1.25rem' }}>{t.icon}</span>
-              <div>
-                <div style={{ fontSize: '0.875rem', fontWeight: 500 }}>{t.name}</div>
-                <div style={{ fontSize: '0.75rem', color: 'var(--gray-500)' }}>
-                  {t.description}
-                </div>
-              </div>
-            </div>
+              {p.icon} {p.label}
+            </button>
           ))}
         </div>
 
-        {/* 预览 */}
-        <pre style={{
-          background: '#1e1e1e', color: '#d4d4d4',
-          borderRadius: 6, padding: 10, fontSize: 12,
-          fontFamily: 'var(--font-mono)', maxHeight: 120,
-          overflow: 'auto', marginBottom: 16,
-          whiteSpace: 'pre-wrap',
-        }}>
-          {selected.code}
-        </pre>
-
-        {/* 按钮 */}
         <div className="confirm-dialog__actions">
           <button className="btn btn-sm" onClick={onCancel}>取消</button>
-          <button
-            className="btn btn-primary btn-sm"
-            onClick={() => onSelect(selected.code, selected.name)}
-          >
-            创建
-          </button>
+          <button className="btn btn-primary btn-sm" onClick={handleCreate}>创建</button>
         </div>
       </div>
     </div>
   );
 }
 
-export { TEMPLATES };
+export { PRESETS };
 export default NewScriptDialog;

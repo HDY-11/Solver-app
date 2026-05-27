@@ -45,6 +45,19 @@ function TextViewer({ nodeId }: RendererProps) {
       .finally(() => setLoading(false));
   }, [vfsPath, addToast]);
 
+  // 版本恢复时自动重载
+  const vfsPathRef = useRef(vfsPath);
+  vfsPathRef.current = vfsPath;
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const { path } = (e as CustomEvent).detail as { path: string };
+      if (path !== vfsPathRef.current) return;
+      readFile(path).then(setCode).catch(() => {});
+    };
+    window.addEventListener('vfs:file-changed', handler);
+    return () => window.removeEventListener('vfs:file-changed', handler);
+  }, []);
+
   const handleSave = useCallback(async () => {
     const p = pathRef.current;
     if (!p) return;
@@ -57,17 +70,22 @@ function TextViewer({ nodeId }: RendererProps) {
     }
   }, [addToast]);
 
-  // 快捷键 Ctrl+S
+  const saveRef = useRef(handleSave);
+  saveRef.current = handleSave;
+
+  // 快捷键 Ctrl+S + toolbar 自定义事件
   useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
-        e.preventDefault();
-        handleSave();
-      }
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); saveRef.current(); }
     };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [handleSave]);
+    const onSave = () => saveRef.current();
+    window.addEventListener('keydown', onKey);
+    window.addEventListener('text-editor:save', onSave);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('text-editor:save', onSave);
+    };
+  }, []);
 
   if (loading) return <Loading text="加载中..." />;
 
@@ -110,11 +128,7 @@ function TextViewer({ nodeId }: RendererProps) {
 // ── 工具栏 ────────────────────────────────────
 
 function TextToolbar() {
-  const handleSave = () => {
-    window.dispatchEvent(new KeyboardEvent('keydown', {
-      ctrlKey: true, key: 's', bubbles: true,
-    }));
-  };
+  const handleSave = () => window.dispatchEvent(new Event('text-editor:save'));
 
   return (
     <button className="btn btn-primary btn-sm" onClick={handleSave}>

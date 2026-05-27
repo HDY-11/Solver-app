@@ -34,7 +34,6 @@ async fn run_script(path: String) -> Result<String, AppError> {
             .map_err(|e| AppError::Io(e))
             .inspect_log("从 VFS 读取脚本失败")?;
 
-        // 保留原始扩展名，写入临时目录
         let ext = std::path::Path::new(&path)
             .extension()
             .and_then(|e| e.to_str())
@@ -59,8 +58,39 @@ async fn run_script(path: String) -> Result<String, AppError> {
         .map_err(|e| AppError::Python(e))
         .inspect_log("run_script failed")?;
 
+    // 保存运行结果为 .run 文件到 (vfs)/C/运行记录/
+    // 获取脚本当前版本号
+    let script_version = if env::vfs_path::is_vfs(std::path::Path::new(&path)) {
+        vfs::VirFile::open(&path)
+            .and_then(|vf| vf.version())
+            .unwrap_or_else(|_| "0.1.0".to_string())
+    } else {
+        "0.1.0".to_string()
+    };
+
+    let run_record = serde_json::json!({
+        "script_path": &path,
+        "script_version": &script_version,
+        "stdout": &stdout,
+        "stderr": &stderr,
+    });
+    let run_content = run_record.to_string();
+
+    let script_name = std::path::Path::new(&path)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("unnamed");
+    let run_path = format!("(vfs)/C/运行记录/{}.run", script_name);
+
+    // 写入 .run 文件（VirFile::write 内部已做哈希去重，内容未变则跳过）
+    if let Ok(mut f) = vfs::VirFile::open(&run_path)
+        .or_else(|_| vfs::VirFile::create(&run_path))
+    {
+        let _ = std::io::Write::write_all(&mut f, run_content.as_bytes());
+    }
+
     let payload = ScriptResultPayload {
-        path,
+        path: path.clone(),
         stdout: stdout.clone(),
         stderr: stderr.clone(),
     };
@@ -89,9 +119,16 @@ fn vfs_read(path: String) -> Result<String, AppError> {
 
 #[command]
 fn vfs_write(path: String, content: String) -> Result<(), AppError> {
-    let mut f = vfs::VirFile::create(&path)
-        .map_err(|e| AppError::Io(e))
-        .inspect_log("创建文件失败")?;
+    // 先尝试打开已有文件；不存在则创建（避免直接 create 导致 UNIQUE 冲突）
+    let mut f = match vfs::VirFile::open(&path) {
+        Ok(f) => f,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            vfs::VirFile::create(&path)
+                .map_err(|e| AppError::Io(e))
+                .inspect_log("创建文件失败")?
+        }
+        Err(e) => return Err(AppError::Io(e)),
+    };
     std::io::Write::write_all(&mut f, content.as_bytes())
         .map_err(|e| AppError::Io(e))
         .inspect_log("写入文件失败")?;
@@ -113,9 +150,53 @@ fn vfs_exists(path: String) -> Result<bool, AppError> {
 
 #[command]
 fn vfs_delete(path: String) -> Result<(), AppError> {
-    vfs::VirFile::delete(&path)
+    // 如果是 .py 文件，级联删除对应的 .run 文件
+    if path.ends_with(".py") {
+        if let Some(name) = std::path::Path::new(&path).file_name().and_then(|n| n.to_str()) {
+            let run_path = format!("(vfs)/C/运行记录/{}.run", name);
+            if vfs::VirFile::exists(&run_path).unwrap_or(false) {
+                if let Ok(f) = vfs::VirFile::open(&run_path) {
+                    let _ = f.delete();
+                }
+            }
+        }
+    }
+    vfs::VirFile::open(&path)
+        .and_then(|f| f.delete())
         .map_err(|e| AppError::Io(e))
         .inspect_log("删除失败")
+}
+
+#[command]
+fn vfs_rename(path: String, new_name: String) -> Result<(), AppError> {
+    let old_name = std::path::Path::new(&path)
+        .file_name().and_then(|n| n.to_str()).unwrap_or("");
+    vfs::VirFile::open(&path)
+        .and_then(|f| f.rename(&new_name))
+        .map_err(|e| AppError::Io(e))
+        .inspect_log("重命名失败")?;
+
+    // 级联重命名 .run 文件
+    if old_name.ends_with(".py") {
+        let old_run = format!("(vfs)/C/运行记录/{}.run", old_name);
+        let new_run_name = format!("{}.run", new_name);
+        if vfs::VirFile::exists(&old_run).unwrap_or(false) {
+            if let Ok(f) = vfs::VirFile::open(&old_run) {
+                if let Err(e) = f.rename(&new_run_name) {
+                    log::warn!("级联重命名 .run 失败 ({} → {}): {}", old_run, new_run_name, e);
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+#[command]
+fn vfs_set_version(path: String, new_version: String) -> Result<(), AppError> {
+    vfs::VirFile::open(&path)
+        .and_then(|f| f.set_version(&new_version))
+        .map_err(|e| AppError::Io(e))
+        .inspect_log("设置版本号失败")
 }
 
 #[command]
@@ -221,6 +302,8 @@ pub fn run() {
             vfs_exists,
             vfs_delete,
             vfs_create_dir,
+            vfs_rename,
+            vfs_set_version,
             vfs_info,
             vfs_list_versions,
             vfs_read_version,

@@ -1,8 +1,5 @@
 use std::io;
 use std::path::Path;
-use r2d2::Pool;
-use r2d2_sqlite::SqliteConnectionManager;
-use error_system::ResultLogExt;
 
 // ── 列名常量 ──────────────────────────────────────
 
@@ -18,10 +15,6 @@ fn map_io(context: &str, e: impl std::fmt::Display) -> io::Error {
 }
 
 /// 获取 DB 连接
-pub(crate) fn get_conn(pool: &Pool<SqliteConnectionManager>) -> io::Result<r2d2::PooledConnection<SqliteConnectionManager>> {
-    pool.get().map_err(|e| map_io("获取数据库连接", e))
-}
-
 /// 执行 query_row，统一处理 NotFound 和 Err 分支
 fn query_single(conn: &rusqlite::Connection, sql: &str, p: &[&dyn rusqlite::types::ToSql]) -> io::Result<Option<NodeMeta>> {
     let mut stmt = conn.prepare(sql).map_err(|e| map_io("准备查询", e))?;
@@ -78,7 +71,7 @@ pub struct NodeVersionMeta {
 }
 
 // ── 单节点查询 ────────────────────────────────────
-
+/// 通过路径查找数据库中对应的节点元信息
 pub(crate) fn find_node_by_path(conn: &rusqlite::Connection, path: &str) -> io::Result<Option<NodeMeta>> {
     let components = env_system::vfs_components(Path::new(path))
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "无效的 VFS 路径"))?;
@@ -109,14 +102,14 @@ pub(crate) fn find_node_by_path(conn: &rusqlite::Connection, path: &str) -> io::
     }
     Ok(last)
 }
-
+/// 通过id查找数据库中对应的节点id元信息
 pub(crate) fn find_node_by_id(conn: &rusqlite::Connection, id: i64) -> io::Result<Option<NodeMeta>> {
     query_single(conn,
         &format!("SELECT {} FROM nodes WHERE id=? AND deleted=0", NODE_COLS),
         rusqlite::params![&id],
     )
 }
-
+/// 通过
 pub(crate) fn find_node_by_name_and_parent(conn: &rusqlite::Connection, name: &str, parent_id: Option<i64>, volume: &str) -> io::Result<Option<NodeMeta>> {
     query_single(conn,
         &format!("SELECT {} FROM nodes WHERE parent_id IS ? AND name=? AND volume=? AND deleted=0", NODE_COLS),
@@ -192,9 +185,21 @@ pub(crate) fn rename_node(conn: &rusqlite::Connection, id: i64, new_name: &str) 
     Ok(())
 }
 
-pub(crate) fn move_node(conn: &rusqlite::Connection, id: i64, new_parent_id: Option<i64>, new_volume: &str) -> io::Result<()> {
-    exec(conn, "UPDATE nodes SET parent_id=?, volume=?, modified_at=datetime('now') WHERE id=?", rusqlite::params![&new_parent_id, &new_volume, &id])?;
+/// 设置节点版本号（用户手动修改）
+pub(crate) fn set_node_version(conn: &rusqlite::Connection, id: i64, new_version: &str) -> io::Result<()> {
+    exec(conn, "UPDATE nodes SET version=?, modified_at=datetime('now') WHERE id=?", rusqlite::params![&new_version, &id])?;
     Ok(())
+}
+
+/// 获取节点当前 content_hash（用于写入前去重）
+pub(crate) fn get_content_hash(conn: &rusqlite::Connection, id: i64) -> io::Result<Option<String>> {
+    let mut stmt = conn.prepare("SELECT content_hash FROM nodes WHERE id=? AND deleted=0")
+        .map_err(|e| map_io("get_content_hash 准备", e))?;
+    match stmt.query_row(rusqlite::params![&id], |row| row.get::<_, Option<String>>(0)) {
+        Ok(hash) => Ok(hash),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(e) => Err(map_io("get_content_hash 查询", e)),
+    }
 }
 
 pub(crate) fn get_storage_offset(conn: &rusqlite::Connection, id: i64) -> io::Result<(u64, u64)> {

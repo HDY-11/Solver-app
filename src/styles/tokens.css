@@ -21,69 +21,67 @@
   --space-12: 48px;
   
   /* ===== 圆角 ===== */
-  --radius-sm: 4px;    /* 小元素：标签、徽章 */
-  --radius-md: 6px;    /* 按钮、输入框 */
-  --radius-lg: 8px;    /* 卡片、面板 */
-  --radius-xl: 12px;   /* 模态框 */
-  
-  /* ===== 中性色盘（冷灰基调）===== */
-  --gray-0: #FFFFFF;
-  --gray-50: #F9FAFB;
-  --gray-100: #F3F4F6;
-  --gray-200: #E5E7EB;
-  --gray-300: #D1D5DB;
-  --gray-400: #9CA3AF;
-  --gray-500: #6B7280;
-  --gray-600: #4B5563;
-  --gray-700: #374151;
-  --gray-800: #1F2937;
-  --gray-900: #111827;
-  --gray-950: #0B0F19;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+
+  /* ===== 中性色盘（深色主题 —— 默认）===== */
+  --gray-0: #0B0F19;
+  --gray-50: #111827;
+  --gray-100: #1F2937;
+  --gray-200: #374151;
+  --gray-300: #4B5563;
+  --gray-400: #6B7280;
+  --gray-500: #9CA3AF;
+  --gray-600: #D1D5DB;
+  --gray-700: #E5E7EB;
+  --gray-800: #F3F4F6;
+  --gray-900: #F9FAFB;
+  --gray-950: #FFFFFF;
   --gray-1000: #1E1E1E;
 
-  /* ===== 品牌色（主色）===== */
-  --primary: #2563EB;          /* 蓝色主色调 */
-  --primary-light: #3B82F6;    /* 悬停变亮 */
-  --primary-dark: #1D4ED8;     /* 点击变深 */
-  --primary-bg: #EFF6FF;       /* 浅色背景 */
+  /* ===== 品牌色 ===== */
+  --primary: #3B82F6;
+  --primary-light: #60A5FA;
+  --primary-dark: #2563EB;
+  --primary-bg: #1E3A5F;
 
   /* ===== 功能色 ===== */
-  --success: #10B981;          /* 成功绿 */
+  --success: #10B981;
   --success-light: #34D399;
   --success-dark: #059669;
-  --success-bg: #ECFDF5;
+  --success-bg: #064E3B;
 
-  --warning: #F59E0B;          /* 警告橙 */
+  --warning: #F59E0B;
   --warning-light: #FBBF24;
   --warning-dark: #D97706;
-  --warning-bg: #FFFBEB;
+  --warning-bg: #78350F;
 
-  --danger: #EF4444;           /* 危险红 */
+  --danger: #EF4444;
   --danger-light: #F87171;
   --danger-dark: #DC2626;
-  --danger-bg: #FEF2F2;
+  --danger-bg: #7F1D1D;
 
-  --info: #6366F1;             /* 信息紫 */
+  --info: #6366F1;
   --info-light: #818CF8;
   --info-dark: #4F46E5;
-  --info-bg: #EEF2FF;
+  --info-bg: #312E81;
   
   /* ===== 阴影层级 ===== */
-  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.05);
-  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.1), 0 1px 2px rgba(0, 0, 0, 0.06);
-  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
-  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
-  --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
-  
-  /* 侧边栏专用阴影（右侧有轻微投影） */
-  --shadow-sidebar: 2px 0 8px rgba(0, 0, 0, 0.05);
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4), 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.4), 0 2px 4px -1px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.4), 0 4px 6px -2px rgba(0, 0, 0, 0.3);
+  --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.4), 0 10px 10px -5px rgba(0, 0, 0, 0.3);
+  --shadow-sidebar: 2px 0 8px rgba(0, 0, 0, 0.2);
   
   /* ===== 过渡动画 ===== */
   --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
   --transition-base: 250ms cubic-bezier(0.4, 0, 0.2, 1);
   --transition-slow: 350ms cubic-bezier(0.4, 0, 0.2, 1);
   
-  /* ===== 字体渲染优化 ===== */
+  color-scheme: dark;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
@@ -103,5 +101,23 @@
   --gray-800: #1F2937;
   --gray-900: #111827;
   --gray-950: #0B0F19;
-  --gray-1000: #1E1E1E;
+
+  --primary: #2563EB;
+  --primary-light: #3B82F6;
+  --primary-dark: #1D4ED8;
+  --primary-bg: #EFF6FF;
+
+  --success-bg: #ECFDF5;
+  --warning-bg: #FFFBEB;
+  --danger-bg: #FEF2F2;
+  --info-bg: #EEF2FF;
+
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.1), 0 1px 2px rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+  --shadow-sidebar: 2px 0 8px rgba(0, 0, 0, 0.05);
+
+  color-scheme: light;
 }

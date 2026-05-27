@@ -3,14 +3,55 @@
 //! 每个卷（C, D1, D2...）对应一个 DataFilePool。
 //! 句柄池为 8 个 Slot<File>，并发借出。
 //! 偏移量分配用 AtomicU64 保证无锁。
+//!
+//! pwrite / pread 通过 `LeaseFileExt` 扩展 trait 直接挂在 `Lease<File>` 上，
+//! 不归 DataFilePool 管。
 
 use std::fs::{File, OpenOptions};
-use std::io::{self, Write};
-use std::path::{Path, PathBuf};
+use std::io::{self};
+use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use utils::{Slot, Lease};
 use error_system::ResultLogExt;
+
+// ── Lease<File> 扩展：pwrite / pread ──────────────
+
+/// 为 `Lease<File>` 提供跨平台的指定偏移量读写。
+/// 替代原来挂在 `DataFilePool` 上的 `write_at` / `read_at`，
+/// 让 Pool 职责纯粹为「偏移分配 + 句柄借出」。
+pub trait LeaseFileExt {
+    fn pwrite_at(&self, offset: u64, data: &[u8]) -> io::Result<()>;
+    fn pread_at(&self, offset: u64, buf: &mut [u8]) -> io::Result<usize>;
+}
+
+impl LeaseFileExt for Lease<File> {
+    fn pwrite_at(&self, offset: u64, data: &[u8]) -> io::Result<()> {
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::FileExt::write_at(self, data, offset)
+        }
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::FileExt;
+            self.seek_write(data, offset).map(|_| ())
+        }
+    }
+
+    fn pread_at(&self, offset: u64, buf: &mut [u8]) -> io::Result<usize> {
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::FileExt::read_at(self, buf, offset)
+        }
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::FileExt;
+            self.seek_read(buf, offset)
+        }
+    }
+}
+
+// ── DataFilePool ─────────────────────────────────
 
 pub struct DataFilePool {
     slots: Vec<Arc<Slot<File>>>,
@@ -115,41 +156,7 @@ impl DataFilePool {
         }
     }
 
-    /// 在指定偏移量写入数据。
-    ///
-    /// 使用 pwrite，不同偏移量的写入由内核保证并发安全。
-    pub fn write_at(&self, lease: &Lease<File>, offset: u64, data: &[u8]) -> io::Result<()> {
-        log::trace!("[DataFilePool] write_at: offset={}, len={}", offset, data.len());
-
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::FileExt;
-            lease.write_at(data, offset)
-        }
-        #[cfg(windows)]
-        {
-            use std::os::windows::fs::FileExt;
-            lease.seek_write(data, offset).map(|_| ())
-        }
-    }
-
-    /// 从指定偏移量读取数据。
-    pub fn read_at(&self, lease: &Lease<File>, offset: u64, buf: &mut [u8]) -> io::Result<usize> {
-        log::trace!("[DataFilePool] read_at: offset={}, buf_len={}", offset, buf.len());
-
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::FileExt;
-            lease.read_at(buf, offset)
-        }
-        #[cfg(windows)]
-        {
-            use std::os::windows::fs::FileExt;
-            lease.seek_read(buf, offset)
-        }
-    }
-
-    /// 当前文件大小。
+    /// 当前文件大小（= 已分配偏移量）。
     pub fn file_size(&self) -> u64 {
         self.current_offset.load(Ordering::Relaxed)
     }

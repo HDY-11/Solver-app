@@ -1,19 +1,15 @@
 // layouts/Footer.tsx — 底部状态栏：渲染器信息 + VFS 用量 + 快捷入口 + 主题切换
+//
+// 使用 useLocation().pathname 手动解析当前 renderer（Footer 在 <Routes> 外部）。
 
-import { useLocation, useParams, useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useState, useEffect } from 'react';
 import { error as logError } from '@tauri-apps/plugin-log';
 import { getRenderer } from '../registry/registry';
 import { getInfo } from '../api/vfs';
 import type { VfsInfo, Theme } from '../types';
+import { fmtSize } from '../types';
 
-function fmtSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-/** 从 localStorage 读取主题设置，默认 dark */
 function loadTheme(): Theme {
   try {
     const raw = localStorage.getItem('solver-settings');
@@ -23,16 +19,17 @@ function loadTheme(): Theme {
 }
 
 function Footer() {
-  const location = useLocation();
-  const { renderer } = useParams();
+  const { pathname } = useLocation();
   const navigate = useNavigate();
   const [vfsInfo, setVfsInfo] = useState<VfsInfo | null>(null);
   const [expanded, setExpanded] = useState(false);
   const [theme, setTheme] = useState<Theme>(loadTheme);
 
+  // 手动解析 renderer（Footer 在 Routes 外，useParams 不可用）
+  const parts = pathname.split('/').filter(Boolean);
+  const renderer = parts.length >= 2 && parts[0] === 'app' ? parts[1] : null;
   const rendererDef = renderer ? getRenderer(renderer) : undefined;
 
-  // 初始化 + 切换主题：修改 document 的 data-theme 属性
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
   }, [theme]);
@@ -40,7 +37,6 @@ function Footer() {
   const toggleTheme = () => {
     setTheme((prev) => {
       const next: Theme = prev === 'dark' ? 'light' : 'dark';
-      // 同步写回 localStorage
       try {
         const raw = localStorage.getItem('solver-settings');
         const settings = raw ? JSON.parse(raw) : {};
@@ -51,34 +47,16 @@ function Footer() {
     });
   };
 
-  // 监听 /app/state 展开状态
+  // 合并为一个 effect：展开或路径变化时刷新 VFS 信息
   useEffect(() => {
-    setExpanded(location.pathname === '/app/state');
-  }, [location.pathname]);
-
-  // 展开时加载 VFS 信息
-  useEffect(() => {
-    if (expanded) {
-      getInfo()
-        .then(setVfsInfo)
-        .catch((err) => {
-          logError(`Footer: 获取 VFS 信息失败: ${err}`);
-          setVfsInfo(null);
-        });
-    }
-  }, [expanded]);
-
-  // 路径变化时刷新 VFS 信息（如果已展开）
-  useEffect(() => {
-    if (expanded) {
-      getInfo()
-        .then(setVfsInfo)
-        .catch((err) => {
-          logError(`Footer: 获取 VFS 信息失败: ${err}`);
-          setVfsInfo(null);
-        });
-    }
-  }, [location.pathname, expanded]);
+    if (!expanded) return;
+    getInfo()
+      .then(setVfsInfo)
+      .catch((err) => {
+        logError(`Footer: 获取 VFS 信息失败: ${err}`);
+        setVfsInfo(null);
+      });
+  }, [expanded, pathname]);
 
   return (
     <footer className="app-footer">
@@ -122,7 +100,7 @@ function Footer() {
       <button
         className="icon-btn"
         title={expanded ? '收起状态' : '展开状态'}
-        onClick={() => navigate(expanded ? location.pathname : '/app/state')}
+        onClick={() => setExpanded(!expanded)}
       >
         📊
       </button>

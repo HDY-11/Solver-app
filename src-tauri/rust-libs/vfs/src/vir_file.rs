@@ -1,6 +1,6 @@
 use std::fs::File as StdFile;
 use std::io::{self, Read, Write, Seek, SeekFrom};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;
@@ -8,6 +8,7 @@ use utils::Lease;
 use error_system::ResultLogExt;
 use serde::Serialize;
 use crate::pool::DataFilePool;
+use crate::pool::LeaseFileExt;
 use crate::query;
 
 #[derive(Debug, Clone, Serialize)]
@@ -25,7 +26,6 @@ pub struct VirFile {
     pool_ref: *const DataFilePool,
     node_id: i64,
     virt_pos: u64,
-    volume: String,
     db_pool: Arc<Pool<SqliteConnectionManager>>,
 }
 
@@ -62,7 +62,6 @@ impl VirFile {
             pool_ref: pool as *const DataFilePool,
             node_id: meta.id,
             virt_pos: 0,
-            volume,
             db_pool: Arc::new(vfs.db_pool.clone()),
         })
     }
@@ -112,12 +111,11 @@ impl VirFile {
             pool_ref: pool as *const DataFilePool,
             node_id,
             virt_pos: 0,
-            volume,
             db_pool: Arc::new(vfs.db_pool.clone()),
         })
     }
 
-    pub fn node_id(&self) -> i64 {
+    pub(crate) fn node_id(&self) -> i64 {
         self.node_id
     }
 
@@ -147,30 +145,57 @@ impl VirFile {
         Ok(result)
     }
 
-    pub fn delete(path: impl AsRef<Path>) -> io::Result<()> {
-        let path_ref = path.as_ref();
-        let path_str = path_ref.to_string_lossy();
-        log::info!("[VirFile] delete: path='{}'", path_str);
-
-        let vfs = crate::vfs_core::VirtualFileSystem::get();
-        let conn = vfs.db_pool.get()
+    pub fn delete(self) -> io::Result<()> {
+        log::info!("[VirFile] delete: node_id={}", self.node_id);
+        let conn = self.db_pool.get()
             .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))
             .inspect_log("delete: 获取数据库连接失败")?;
-
-        let meta = query::find_node_by_path(&conn, &path_str)
-            .inspect_log(format!("delete: 查找节点失败: path='{}'", path_str))?
-            .ok_or_else(|| {
-                log::error!("[VirFile] delete: 文件不存在: '{}'", path_str);
-                io::Error::new(io::ErrorKind::NotFound, "文件不存在")
-            })?;
-
-        log::debug!("[VirFile] delete: 找到节点 id={}, name='{}', type={}", meta.id, meta.name, meta.node_type);
-
-        query::soft_delete_node(&conn, meta.id)
-            .inspect_log(format!("delete: 软删除失败: id={}", meta.id))?;
-
-        log::info!("[VirFile] delete 完成: path='{}', node_id={}", path_str, meta.id);
+        query::soft_delete_node(&conn, self.node_id)
+            .inspect_log(format!("delete: 软删除失败: id={}", self.node_id))?;
+        log::info!("[VirFile] delete 完成: node_id={}", self.node_id);
         Ok(())
+    }
+
+    pub fn rename(&self, new_name: &str) -> io::Result<()> {
+        log::info!("[VirFile] rename: node_id={} → '{}'", self.node_id, new_name);
+        let conn = self.db_pool.get()
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))
+            .inspect_log("rename: 获取数据库连接失败")?;
+        query::rename_node(&conn, self.node_id, new_name)
+            .inspect_log(format!("rename: 重命名失败: id={}", self.node_id))?;
+        log::info!("[VirFile] rename 完成: node_id={} → '{}'", self.node_id, new_name);
+        Ok(())
+    }
+
+    /// 设置节点版本号（用户手动修改）
+    pub fn set_version(&self, new_version: &str) -> io::Result<()> {
+        log::info!("[VirFile] set_version: node_id={} → '{}'", self.node_id, new_version);
+        let conn = self.db_pool.get()
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))
+            .inspect_log("set_version: 获取数据库连接失败")?;
+        query::set_node_version(&conn, self.node_id, new_version)
+            .inspect_log(format!("set_version: 设置版本失败: id={}", self.node_id))?;
+        log::info!("[VirFile] set_version 完成: node_id={} → '{}'", self.node_id, new_version);
+        Ok(())
+    }
+
+    /// 获取当前内容哈希（用于写入前去重判断）
+    pub fn current_hash(&self) -> io::Result<Option<String>> {
+        let conn = self.db_pool.get()
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))
+            .inspect_log("current_hash: 获取数据库连接失败")?;
+        query::get_content_hash(&conn, self.node_id)
+    }
+
+    /// 获取节点版本号
+    pub fn version(&self) -> io::Result<String> {
+        let conn = self.db_pool.get()
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))
+            .inspect_log("version: 获取数据库连接失败")?;
+        let meta = query::find_node_by_id(&conn, self.node_id)
+            .inspect_log(format!("version: 查询节点失败: id={}", self.node_id))?
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "节点不存在"))?;
+        Ok(meta.version)
     }
 
     pub fn create_dir(path: impl AsRef<Path>) -> io::Result<()> {
@@ -253,7 +278,7 @@ impl VirFile {
 
         let lease = pool.acquire();
         let mut buf = vec![0u8; version.size as usize];
-        pool.read_at(&lease, version.storage_offset as u64, &mut buf)?;
+        lease.pread_at(version.storage_offset as u64, &mut buf)?;
         Ok(buf)
     }
 
@@ -289,7 +314,7 @@ impl Read for VirFile {
 
         log::debug!("[VirFile] read: read_offset={}, to_read={}", read_offset, to_read);
 
-        let n = self.pool().read_at(&self.lease, read_offset, &mut buf[..to_read])
+        let n = self.lease.pread_at(read_offset, &mut buf[..to_read])
             .inspect_log(format!("read: pread 失败: offset={}, len={}", read_offset, to_read))?;
 
         self.virt_pos += n as u64;
@@ -302,18 +327,35 @@ impl Read for VirFile {
 
 impl Write for VirFile {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        // 1. 先计算新内容的哈希
+        let new_hash: String = {
+            use sha2::{Sha256, Digest};
+            let mut hasher = Sha256::new();
+            hasher.update(buf);
+            hex::encode(hasher.finalize())
+        };
 
         let conn = self.db_pool.get()
             .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))
             .inspect_log("write: 获取数据库连接失败")?;
 
-        // 存档当前版本到 node_versions：先读出当前的 (hash, offset, size)
-        // 如果 content_hash 非空且与旧内容不同，则 INSERT OR IGNORE 到时间线
+        // 2. 哈希去重：若内容未变，跳过写入
+        if let Some(current_hash) = query::get_content_hash(&conn, self.node_id)
+            .inspect_log(format!("write: 查询当前哈希失败: node_id={}", self.node_id))?
+        {
+            if current_hash == new_hash {
+                log::debug!("[VirFile] write: 内容未变 (hash={}), 跳过写入 node_id={}",
+                    &new_hash[..8], self.node_id);
+                self.virt_pos += buf.len() as u64;
+                return Ok(buf.len());
+            }
+        }
+
+        // 3. 存档当前版本到 node_versions
         if let Ok(Some(old_meta)) = query::find_node_by_id(&conn, self.node_id) {
             if let (Some(old_hash), Some(old_off), Some(old_sz)) =
                 (old_meta.content_hash, old_meta.storage_offset, old_meta.size)
             {
-                // INSERT OR IGNORE：同一 (node_id, hash) 不重复插入（去重）
                 query::archive_version(&conn, self.node_id, &old_hash, old_off, old_sz)
                     .inspect_log(format!("write: 存档旧版本失败: node_id={}", self.node_id))?;
             }
@@ -324,25 +366,20 @@ impl Write for VirFile {
         let new_offset = pool.alloc(buf.len())
             .inspect_log(format!("write: 分配 BlobStore 空间失败: len={}", buf.len()))?;
 
-        pool.write_at(&self.lease, new_offset, buf)
+        self.lease.pwrite_at(new_offset, buf)
             .inspect_log(format!("write: pwrite 失败: offset={}, len={}", new_offset, buf.len()))?;
 
-        let hash = {
-            use sha2::{Sha256, Digest};
-            let mut hasher = Sha256::new();
-            hasher.update(buf);
-            hex::encode(hasher.finalize())
-        };
-
-        // 新内容也存档：如果是一个新的 hash，插入 node_versions
-        query::archive_version(&conn, self.node_id, &hash, new_offset as i64, buf.len() as i64)
+        // 4. 新内容存档
+        query::archive_version(&conn, self.node_id, &new_hash, new_offset as i64, buf.len() as i64)
             .inspect_log(format!("write: 存档新版本失败: node_id={}", self.node_id))?;
 
-        // 更新 nodes 表的当前存储信息
-        query::update_node_storage(&conn, self.node_id, new_offset, buf.len() as u64, &hash)
+        // 5. 更新 nodes 表的当前存储信息
+        query::update_node_storage(&conn, self.node_id, new_offset, buf.len() as u64, &new_hash)
             .inspect_log(format!("write: 更新元信息失败: node_id={}", self.node_id))?;
 
         self.virt_pos += buf.len() as u64;
+        log::debug!("[VirFile] write: 写入 {} 字节, hash={}, node_id={}",
+            buf.len(), &new_hash[..8], self.node_id);
         Ok(buf.len())
     }
 

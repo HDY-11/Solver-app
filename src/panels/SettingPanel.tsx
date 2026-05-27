@@ -8,6 +8,7 @@ import { registerPanel } from '../registry/registry';
 import { getInfo } from '../api/vfs';
 import { useToast } from '../hooks/useToast';
 import type { VfsInfo, Theme } from '../types';
+import { fmtSize } from '../types';
 import styles from './SettingPanel.module.css';
 
 // =========================================================================
@@ -41,16 +42,6 @@ function loadSettings(): AppSettings {
 
 function saveSettings(s: AppSettings): void {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(s));
-}
-
-// =========================================================================
-// 工具
-// =========================================================================
-
-function fmtSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 // =========================================================================

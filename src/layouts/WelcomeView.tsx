@@ -5,20 +5,17 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { error as logError } from '@tauri-apps/plugin-log';
-import { listDir, getInfo } from '../api/vfs';
+import { listDir, getInfo, writeFile } from '../api/vfs';
 import { getRendererByExtension } from '../registry/registry';
+import NewScriptDialog from '../components/NewScriptDialog';
+import { useToast } from '../hooks/useToast';
 import type { VfsNode, VfsInfo } from '../types';
+import { fmtSize } from '../types';
 import styles from './WelcomeView.module.css';
 
 // =========================================================================
 // 工具
 // =========================================================================
-
-function fmtSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
 
 /** 从 VFS 节点列表中提取文件（非目录），并按修改时间降序排列 */
 function getRecentFiles(nodes: VfsNode[], limit = 10): VfsNode[] {
@@ -34,9 +31,11 @@ function getRecentFiles(nodes: VfsNode[], limit = 10): VfsNode[] {
 
 function WelcomeView() {
   const navigate = useNavigate();
+  const { addToast } = useToast();
   const [recentFiles, setRecentFiles] = useState<VfsNode[]>([]);
   const [vfsInfo, setVfsInfo] = useState<VfsInfo | null>(null);
   const [loading, setLoading] = useState(true);
+  const [showNewScript, setShowNewScript] = useState(false);
 
   useEffect(() => {
     // 并行加载 VFS 根目录和 VFS 信息
@@ -60,12 +59,29 @@ function WelcomeView() {
     const ext = '.' + (node.name.split('.').pop() ?? '');
     const renderer = getRendererByExtension(ext);
     if (renderer) {
-      navigate(`/app/${renderer.name}/${node.id}`);
+      // 构建 VFS 路径：欢迎页只展示 C 盘根目录文件
+      const vfsPath = `(vfs)/C/${node.name}`;
+      navigate(`/app/${renderer.name}/${encodeURIComponent(vfsPath)}`);
     }
   };
 
   const handleNewPython = () => {
-    navigate('/app/window/py/new');
+    setShowNewScript(true);
+  };
+
+  const handleCreateFromTemplate = async (code: string, _tmpl: string) => {
+    setShowNewScript(false);
+    const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const name = `script_${ts}.py`;
+    const vfsPath = `(vfs)/C/${name}`;
+    try {
+      await writeFile(vfsPath, code);
+      addToast('success', `已创建: ${name}`);
+      navigate(`/app/py/${encodeURIComponent(vfsPath)}`);
+    } catch (err) {
+      logError(`WelcomeView: 创建脚本失败: ${err}`);
+      addToast('error', `创建失败: ${err}`);
+    }
   };
 
   return (
@@ -83,9 +99,6 @@ function WelcomeView() {
           </button>
           <button className="btn" onClick={() => navigate('/app/window/setting')}>
             ⚙ 设置
-          </button>
-          <button className="btn" onClick={() => navigate('/app/window/ViewsPage')}>
-            📋 运行历史
           </button>
         </div>
       </section>
@@ -135,6 +148,11 @@ function WelcomeView() {
           </div>
         </section>
       )}
+      <NewScriptDialog
+        open={showNewScript}
+        onSelect={handleCreateFromTemplate}
+        onCancel={() => setShowNewScript(false)}
+      />
     </div>
   );
 }

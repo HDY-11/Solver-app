@@ -3,7 +3,7 @@
 // 提供 toast 通知的全局状态，组件通过 useToast() 获取 addToast 方法。
 // Toast 组件渲染在 App 顶层，通过 ToastProvider 注入。
 
-import { createContext, useContext, useState, useCallback, type ReactNode } from 'react';
+import { createContext, useContext, useState, useCallback, useRef, type ReactNode } from 'react';
 
 // =========================================================================
 // 类型
@@ -31,17 +31,16 @@ interface ToastContextValue {
 
 const ToastContext = createContext<ToastContextValue | null>(null);
 
-let nextId = 0;
-
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
+  const nextId = useRef(0);  // useRef 避免 HMR 时 ID 碰撞
 
   const removeToast = useCallback((id: number) => {
     setToasts(prev => prev.filter(t => t.id !== id));
   }, []);
 
   const addToast = useCallback((type: ToastType, message: string, duration = 3000) => {
-    const id = ++nextId;
+    const id = ++nextId.current;
     setToasts(prev => [...prev, { id, type, message, duration }]);
     // 自动消失
     if (duration > 0) {
