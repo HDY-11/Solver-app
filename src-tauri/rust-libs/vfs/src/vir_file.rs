@@ -198,6 +198,72 @@ impl VirFile {
         Ok(meta.version)
     }
 
+    // ── 运行记录节点（静态方法）────────────────────
+
+    /// 创建运行记录节点（open-or-create：已存在则复用，不存在则新建）
+    pub fn create_run_node(
+        run_name: &str,
+        linked_files_json: &str,
+    ) -> io::Result<i64> {
+        let vfs = crate::vfs_core::VirtualFileSystem::get();
+        let volume = "C";
+        let run_dir = "(vfs)/C/运行记录";
+
+        let conn = vfs.db_pool.get()
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))
+            .inspect_log("create_run_node: 获取数据库连接失败")?;
+
+        let parent_id = query::ensure_parent_dirs(&conn, run_dir)
+            .inspect_log("create_run_node: 创建运行记录目录失败")?;
+
+        // open-or-create：已有同名节点则直接复用
+        if let Some(existing) = query::find_node_by_name_and_parent(&conn, run_name, Some(parent_id), volume)
+            .inspect_log("create_run_node: 查询已有节点失败")?
+        {
+            log::info!("[VirFile] create_run_node: 复用已有节点 name='{}', id={}", run_name, existing.id);
+            // 更新 linked_files（可能哈希变了）
+            query::update_node_linked_files(&conn, existing.id, linked_files_json)
+                .inspect_log(format!("create_run_node: 更新 linked_files 失败: id={}", existing.id))?;
+            return Ok(existing.id);
+        }
+
+        let node_id = query::insert_run_node(&conn, run_name, parent_id, volume, linked_files_json)
+            .inspect_log(format!("create_run_node: 插入节点失败: name={}", run_name))?;
+
+        log::info!("[VirFile] create_run_node: name='{}', id={}", run_name, node_id);
+        Ok(node_id)
+    }
+
+    /// 从源节点复制 BLOB 引用，创建新的运行记录节点（去重复用存储）
+    pub fn create_run_node_from_source(
+        run_name: &str,
+        linked_files_json: &str,
+        source_offset: i64,
+        source_size: i64,
+        source_hash: &str,
+    ) -> io::Result<i64> {
+        let vfs = crate::vfs_core::VirtualFileSystem::get();
+        let volume = "C";
+        let run_dir = "(vfs)/C/运行记录";
+
+        let conn = vfs.db_pool.get()
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))
+            .inspect_log("create_run_node_from_source: 获取数据库连接失败")?;
+
+        let parent_id = query::ensure_parent_dirs(&conn, run_dir)
+            .inspect_log("create_run_node_from_source: 创建运行记录目录失败")?;
+
+        let node_id = query::insert_run_node_from_source(
+            &conn, run_name, parent_id, volume, linked_files_json,
+            source_offset, source_size, source_hash,
+        )
+        .inspect_log(format!("create_run_node_from_source: 插入节点失败: name={}", run_name))?;
+
+        log::info!("[VirFile] create_run_node_from_source: name='{}', id={}, 复用 BLOB (offset={}, size={})",
+            run_name, node_id, source_offset, source_size);
+        Ok(node_id)
+    }
+
     pub fn create_dir(path: impl AsRef<Path>) -> io::Result<()> {
         let path_ref = path.as_ref();
         let path_str = path_ref.to_string_lossy();
@@ -339,25 +405,37 @@ impl Write for VirFile {
             .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))
             .inspect_log("write: 获取数据库连接失败")?;
 
-        // 2. 哈希去重：若内容未变，跳过写入
-        if let Some(current_hash) = query::get_content_hash(&conn, self.node_id)
-            .inspect_log(format!("write: 查询当前哈希失败: node_id={}", self.node_id))?
-        {
-            if current_hash == new_hash {
-                log::debug!("[VirFile] write: 内容未变 (hash={}), 跳过写入 node_id={}",
-                    &new_hash[..8], self.node_id);
-                self.virt_pos += buf.len() as u64;
-                return Ok(buf.len());
+        // 2. 哈希去重：查询失败时 fall through 到正常写入，不阻塞
+        let should_skip = match query::get_content_hash(&conn, self.node_id) {
+            Ok(Some(current_hash)) => {
+                if current_hash == new_hash {
+                    log::debug!("[VirFile] write: 内容未变 (hash={}), 跳过写入 node_id={}",
+                        &new_hash[..8], self.node_id);
+                    true
+                } else {
+                    false
+                }
             }
+            Ok(None) => false,
+            Err(e) => {
+                log::warn!("[VirFile] write: 查询哈希失败 (node_id={}), 降级为强制写入: {}",
+                    self.node_id, e);
+                false
+            }
+        };
+
+        if should_skip {
+            self.virt_pos += buf.len() as u64;
+            return Ok(buf.len());
         }
 
-        // 3. 存档当前版本到 node_versions
+        // 3. 存档当前版本到 node_versions（仅当有旧内容时）
         if let Ok(Some(old_meta)) = query::find_node_by_id(&conn, self.node_id) {
             if let (Some(old_hash), Some(old_off), Some(old_sz)) =
                 (old_meta.content_hash, old_meta.storage_offset, old_meta.size)
             {
-                query::archive_version(&conn, self.node_id, &old_hash, old_off, old_sz)
-                    .inspect_log(format!("write: 存档旧版本失败: node_id={}", self.node_id))?;
+                let _ = query::archive_version(&conn, self.node_id, &old_hash, old_off, old_sz)
+                    .inspect_log(format!("write: 存档旧版本失败: node_id={}", self.node_id));
             }
         }
 

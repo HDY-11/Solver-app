@@ -9,8 +9,8 @@ use crate::pool::DataFilePool;
 
 static VFS: OnceLock<VirtualFileSystem> = OnceLock::new();
 
-pub(crate) struct VirtualFileSystem {
-    pub(crate) db_pool: Pool<SqliteConnectionManager>,
+pub struct VirtualFileSystem {
+    pub db_pool: Pool<SqliteConnectionManager>,
     pub(crate) blob_pools: DashMap<String, DataFilePool>,
 }
 
@@ -166,11 +166,11 @@ impl VirtualFileSystem {
         Ok(())
     }
 
-    pub(crate) fn get() -> &'static Self {
+    pub fn get() -> &'static Self {
         VFS.get().expect("VFS 未初始化")
     }
 
-    pub(crate) fn get_pool(&self, volume: &str) -> io::Result<&DataFilePool> {
+    pub fn get_pool(&self, volume: &str) -> io::Result<&DataFilePool> {
         log::debug!("[VFS-core] get_pool: volume='{}'", volume);
 
         self.blob_pools.get(volume)

@@ -82,7 +82,44 @@ html, body, #root {
   align-items: center;
   padding: 0 12px;
   z-index: 10;
+  user-select: none;
 }
+
+/* 自定义标题栏按钮 */
+.titlebar-controls {
+  display: flex;
+  margin-left: auto;
+  gap: 0;
+}
+
+.titlebar-btn {
+  width: 34px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 0.75rem;
+  color: var(--gray-700);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background var(--transition-fast);
+}
+
+.titlebar-btn:hover {
+  background: var(--gray-300);
+}
+
+.titlebar-close:hover {
+  background: #e81123;
+  color: #fff;
+}
+
+/* 四边 resize 区域（用于自定义标题栏下的窗口缩放） */
+.resize-handle-n { height: 4px; cursor: n-resize; position: fixed; top: 0; left: 0; right: 0; z-index: 100; }
+.resize-handle-s { height: 4px; cursor: s-resize; position: fixed; bottom: 0; left: 0; right: 0; z-index: 100; }
+.resize-handle-w { width: 4px;  cursor: w-resize; position: fixed; top: 0; left: 0; bottom: 0; z-index: 100; }
+.resize-handle-e { width: 4px;  cursor: e-resize; position: fixed; top: 0; right: 0; bottom: 0; z-index: 100; }
 
 .app-toolbar {
   grid-area: toolbar;

@@ -1,5 +1,4 @@
 use std::cell::RefCell;
-use std::io::Write;
 use log_system::init_logging;
 use tauri::{Manager, command};
 use event_system::*;
@@ -7,6 +6,15 @@ use error_system::{ResultLogExt, OptionLogExt, AppError};
 use serde::Serialize;
 use env_system as env;
 use anyhow::Error;
+
+mod services;
+
+#[derive(Clone, Serialize)]
+struct RunScriptResponse {
+    run_path: String,
+    /// "cached" = 已有结果直接显示, "running" = 后台执行中
+    status: String,
+}
 
 #[derive(Clone, Serialize)]
 struct ScriptResultPayload {
@@ -18,90 +26,150 @@ struct ScriptResultPayload {
 #[command]
 fn save_script(code: String, path: String) -> Result<(), AppError> {
     python_bridge::save_script(code, path)
-        .map_err(|e| AppError::Other(Error::from_boxed(e.into_inner().expect_log("raraly error"))))
+        .map_err(|e| AppError::Other(Error::from_boxed(e.into_inner().expect_log("rarely error"))))
         .inspect_log("save_script failed")
 }
 
 #[command]
-async fn run_script(path: String) -> Result<String, AppError> {
-    // VFS 路径需要先从 VFS 读取内容 → 写入临时文件 → 再用真实路径执行
-    let exec_path = if env::vfs_path::is_vfs(std::path::Path::new(&path)) {
+async fn run_script(path: String) -> Result<RunScriptResponse, AppError> {
+    use sha2::{Sha256, Digest};
+
+    // ── 1. 读取脚本内容 + 版本号 + 计算哈希 ──
+    let (content, script_version) = if env::vfs_path::is_vfs(std::path::Path::new(&path)) {
         let mut vf = vfs::VirFile::open(&path)
             .map_err(|e| AppError::Io(e))
             .inspect_log("从 VFS 打开脚本失败")?;
-        let mut content = String::new();
-        std::io::Read::read_to_string(&mut vf, &mut content)
+        let version = vf.version().unwrap_or_else(|_| "0.1.0".to_string());
+        let mut c = String::new();
+        std::io::Read::read_to_string(&mut vf, &mut c)
             .map_err(|e| AppError::Io(e))
             .inspect_log("从 VFS 读取脚本失败")?;
-
-        let ext = std::path::Path::new(&path)
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("py");
-        let tmp_path = std::env::temp_dir()
-            .join(format!("solver_script_{}_{}.{}", std::process::id(), 
-                std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default().as_nanos(), ext));
-        let mut tmp_file = std::fs::File::create(&tmp_path)
-            .map_err(|e| AppError::Io(e))
-            .inspect_log("创建临时脚本文件失败")?;
-        tmp_file.write_all(content.as_bytes())
-            .map_err(|e| AppError::Io(e))
-            .inspect_log("写入临时脚本失败")?;
-        tmp_path.to_string_lossy().to_string()
+        (c, version)
     } else {
-        path.clone()
+        let c = std::fs::read_to_string(&path)
+            .map_err(|e| AppError::Io(std::io::Error::new(std::io::ErrorKind::Other, e)))?;
+        (c, "0.1.0".to_string())
     };
 
-    let (stdout, stderr) = python_bridge::run_script(&exec_path)
-        .await
-        .map_err(|e| AppError::Python(e))
-        .inspect_log("run_script failed")?;
-
-    // 保存运行结果为 .run 文件到 (vfs)/C/运行记录/
-    // 获取脚本当前版本号
-    let script_version = if env::vfs_path::is_vfs(std::path::Path::new(&path)) {
-        vfs::VirFile::open(&path)
-            .and_then(|vf| vf.version())
-            .unwrap_or_else(|_| "0.1.0".to_string())
-    } else {
-        "0.1.0".to_string()
+    let script_hash = {
+        let mut h = Sha256::new();
+        h.update(content.as_bytes());
+        hex::encode(h.finalize())
     };
-
-    let run_record = serde_json::json!({
-        "script_path": &path,
-        "script_version": &script_version,
-        "stdout": &stdout,
-        "stderr": &stderr,
-    });
-    let run_content = run_record.to_string();
 
     let script_name = std::path::Path::new(&path)
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("unnamed");
-    let run_path = format!("(vfs)/C/运行记录/{}.run", script_name);
+        .file_name().and_then(|n| n.to_str()).unwrap_or("unnamed");
+    let run_name = format!("{}.run", script_name);
+    let run_path = format!("(vfs)/C/运行记录/{}", run_name);
 
-    // 写入 .run 文件（VirFile::write 内部已做哈希去重，内容未变则跳过）
-    if let Ok(mut f) = vfs::VirFile::open(&run_path)
-        .or_else(|_| vfs::VirFile::create(&run_path))
+    // ── 2. 去重查询（JSON 解析，非字符串 contains）──
+    let linked_pattern = format!("%\"script_hash\":\"{}\"%", script_hash);
     {
-        let _ = std::io::Write::write_all(&mut f, run_content.as_bytes());
+        let candidates = vfs::query_run_nodes_by_linked(&linked_pattern)
+            .map_err(|e| AppError::Io(e))?;
+
+        for c in &candidates {
+            if let Some(ref lf) = c.linked_files {
+                if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(lf) {
+                    let sp = parsed["script_path"].as_str().unwrap_or("");
+                    let sv = parsed["script_version"].as_str().unwrap_or("");
+                    if sp == path && sv == script_version {
+                        log::info!("[run_script] 精确命中缓存: {}", run_path);
+                        return Ok(RunScriptResponse { run_path, status: "cached".into() });
+                    }
+                }
+            }
+        }
+
+        // 部分匹配：哈希相同，复用 BLOB
+        if let Some(src) = candidates.first() {
+            if let (Some(off), Some(sz), Some(ref ch)) =
+                (src.storage_offset, src.size, &src.content_hash)
+            {
+                let lf = serde_json::json!({
+                    "script_hash": &script_hash,
+                    "script_path": &path,
+                    "script_version": &script_version,
+                }).to_string();
+                vfs::VirFile::create_run_node_from_source(
+                    &run_name, &lf, off, sz, ch,
+                ).map_err(|e| AppError::Io(e))?;
+                log::info!("[run_script] 部分命中，复用 BLOB: {}", run_path);
+                return Ok(RunScriptResponse { run_path, status: "cached".into() });
+            }
+        }
     }
 
-    let payload = ScriptResultPayload {
-        path: path.clone(),
-        stdout: stdout.clone(),
-        stderr: stderr.clone(),
-    };
-    emit!(dyn "script-result": payload);
-    Ok(stdout)
+    // ── 3. 无缓存 → 创建空节点 + 后台执行 ──
+    let lf = serde_json::json!({
+        "script_hash": &script_hash,
+        "script_path": &path,
+        "script_version": &script_version,
+    }).to_string();
+    vfs::VirFile::create_run_node(&run_name, &lf)
+        .map_err(|e| AppError::Io(e))?;
+
+    // 提取到临时文件
+    let ext = std::path::Path::new(&path)
+        .extension().and_then(|e| e.to_str()).unwrap_or("py");
+    let tmp_path = std::env::temp_dir().join(format!(
+        "solver_script_{}_{}.{}",
+        std::process::id(),
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default().as_nanos(),
+        ext,
+    ));
+    std::fs::write(&tmp_path, &content)
+        .map_err(|e| AppError::Io(e))
+        .inspect_log("写入临时脚本失败")?;
+
+    let run_path_clone = run_path.clone();
+    let path_clone = path.clone();
+
+    // 后台执行
+    python_bridge::begin_run(&run_path);
+    tauri::async_runtime::spawn(async move {
+        let result = python_bridge::run_script(&tmp_path.to_string_lossy()).await;
+        match result {
+            Ok(r) => {
+                let run_content = serde_json::json!({
+                    "stdout": r.stdout,
+                    "stderr": r.stderr,
+                    "outputs": r.outputs,
+                }).to_string();
+
+                if let Ok(mut f) = vfs::VirFile::open(&run_path_clone)
+                    .or_else(|_| vfs::VirFile::create(&run_path_clone))
+                {
+                    if let Err(e) = std::io::Write::write_all(&mut f, run_content.as_bytes()) {
+                        log::error!("[run_script] BLOB 写入失败 ({}): {}", run_path_clone, e);
+                    }
+                } else {
+                    log::error!("[run_script] 无法打开 .run 文件写入: {}", run_path_clone);
+                }
+
+                let payload = ScriptResultPayload {
+                    path: path_clone,
+                    stdout: r.stdout,
+                    stderr: r.stderr,
+                };
+                emit!(dyn "script-result": payload);
+                emit!(dyn "run-complete": serde_json::json!({"run_path": &run_path_clone}));
+            }
+            Err(e) => {
+                log::error!("[run_script] 后台执行失败: {:?}", e);
+                emit!(dyn "run-complete": serde_json::json!({"run_path": &run_path_clone, "error": format!("{:?}", e)}));
+            }
+        }
+    });
+
+    Ok(RunScriptResponse { run_path, status: "running".into() })
 }
 
 #[command]
 fn read_script(path: String) -> Result<String, AppError> {
     std::fs::read_to_string(&path)
-        .map_err(|e| AppError::Other(Error::from_boxed(e.into_inner().expect_log("raraly error"))))
+        .map_err(|e| AppError::Other(Error::from_boxed(e.into_inner().expect_log("rarely error"))))
         .inspect_log("read_script failed")
 }
 
@@ -198,6 +266,40 @@ fn vfs_set_version(path: String, new_version: String) -> Result<(), AppError> {
         .map_err(|e| AppError::Io(e))
         .inspect_log("设置版本号失败")
 }
+
+#[command]
+async fn detach_window(app: tauri::AppHandle, url_path: String, title: String) -> Result<String, AppError> {
+    let label = format!("detached-{}", uuid::Uuid::new_v4().to_string().replace('-', "_"));
+    // 使用 initialization_script 注入路由，比 URL 查询参数更可靠
+    let init_script = format!("window.__DETACH_ROUTE__ = '{}';", url_path.replace('\\', "\\\\").replace('\'', "\\'"));
+    tauri::WebviewWindowBuilder::new(
+        &app, &label, tauri::WebviewUrl::App("index.html".into())
+    )
+    .title(&title)
+    .decorations(false)
+    .initialization_script(&init_script)
+    .inner_size(800.0, 600.0)
+    .build()
+    .map_err(|e| AppError::Other(anyhow::Error::from(e)))
+    .inspect_log("创建分离窗口失败")?;
+    log::info!("[detach_window] 已创建: label={}, route={}", label, url_path);
+    Ok(label)
+}
+
+/// 分离窗口请求合并回主窗口（转发事件）
+#[command]
+fn emit_merge_request(path: String, label: String, icon: String) {
+    use serde_json::json;
+    emit!(dyn "merge-request": json!({ "path": path, "label": label, "icon": icon }));
+}
+
+/// 窗口贴靠命令（Windows API）
+#[command]
+fn snap_left() { services::window_ops::snap_left(); }
+#[command]
+fn snap_right() { services::window_ops::snap_right(); }
+#[command]
+fn snap_maximize() { services::window_ops::snap_maximize(); }
 
 #[command]
 fn vfs_create_dir(path: String) -> Result<(), AppError> {
@@ -304,6 +406,11 @@ pub fn run() {
             vfs_create_dir,
             vfs_rename,
             vfs_set_version,
+            detach_window,
+            emit_merge_request,
+            snap_left,
+            snap_right,
+            snap_maximize,
             vfs_info,
             vfs_list_versions,
             vfs_read_version,

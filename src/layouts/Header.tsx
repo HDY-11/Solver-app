@@ -1,7 +1,9 @@
-// layouts/Header.tsx — 顶部导航栏 + 可交互地址栏
+// layouts/Header.tsx — 顶部导航栏（拖拽区 + 可交互地址栏 + 窗口控制）
 
 import { useState, useCallback, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { invoke } from '@tauri-apps/api/core';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import { getRendererByExtension } from '../registry/registry';
 
 function Header() {
@@ -9,8 +11,13 @@ function Header() {
   const location = useLocation();
   const [editValue, setEditValue] = useState('');
   const [editing, setEditing] = useState(false);
+  const [maximized, setMaximized] = useState(false);
   const editingRef = useRef(false);
   editingRef.current = editing;
+  const appWindow = getCurrentWindow();
+
+  // 监听最大化状态
+  appWindow.isMaximized().then(setMaximized);
 
   const startEdit = useCallback(() => {
     setEditValue(location.pathname + location.search);
@@ -31,22 +38,19 @@ function Header() {
     }
   }, [editValue, navigate]);
 
-  // 延迟 onBlur，避免点击前进/后退按钮时误提交
-  const handleBlur = useCallback(() => {
-    setTimeout(() => {
-      if (!editingRef.current) return; // 已经在 timeout 期间被其他操作取消
-      // 延迟后仍处于编辑状态 → 提交
-    }, 100);
-  }, []);
-
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Enter') { e.preventDefault(); commitEdit(); }
     if (e.key === 'Escape') setEditing(false);
   }, [commitEdit]);
 
+  const handleMaximize = async () => {
+    await appWindow.toggleMaximize();
+    setMaximized(await appWindow.isMaximized());
+  };
+
   return (
-    <header className="app-header">
-      <div style={{ display: 'flex', gap: 4 }}>
+    <header className="app-header" data-tauri-drag-region>
+      <div style={{ display: 'flex', gap: 4, WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
         <button onClick={() => navigate(-1)} title="后退">←</button>
         <button onClick={() => navigate(1)} title="前进">→</button>
       </div>
@@ -54,14 +58,23 @@ function Header() {
         className="header-address"
         style={{
           background: editing ? 'var(--gray-50)' : 'transparent',
-        }}
+          WebkitAppRegion: 'no-drag',
+        } as React.CSSProperties}
         value={editing ? editValue : location.pathname + location.search}
         readOnly={!editing}
         onClick={startEdit}
-        onBlur={handleBlur}
         onKeyDown={handleKeyDown}
         placeholder="输入 VFS 路径，如 script.py"
       />
+      <div className="titlebar-controls" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
+        <button className="titlebar-btn" onClick={() => invoke('snap_left')} title="贴靠到左侧">⬅</button>
+        <button className="titlebar-btn" onClick={() => invoke('snap_right')} title="贴靠到右侧">➡</button>
+        <button className="titlebar-btn" onClick={() => appWindow.minimize()} title="最小化">─</button>
+        <button className="titlebar-btn" onClick={handleMaximize} title={maximized ? '还原' : '最大化'}>
+          {maximized ? '❐' : '□'}
+        </button>
+        <button className="titlebar-btn titlebar-close" onClick={() => appWindow.close()} title="关闭">✕</button>
+      </div>
     </header>
   );
 }

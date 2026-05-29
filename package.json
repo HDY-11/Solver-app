@@ -15,12 +15,9 @@
     "@tauri-apps/plugin-dialog": "^2.7.0",
     "@tauri-apps/plugin-log": "^2.8.0",
     "@tauri-apps/plugin-opener": "^2",
-    "echarts": "^6.0.0",
-    "monaco-pyright-lsp": "^0.1.7",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
-    "react-router-dom": "^7.15.1",
-    "tauri-plugin-python-api": "^0.3.4"
+    "react-router-dom": "^7.15.1"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.11.0",

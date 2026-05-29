@@ -1,6 +1,7 @@
 // renderers/PythonEditor.tsx — Python 代码编辑器（基于 Monaco）
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { error as logError } from '@tauri-apps/plugin-log';
 import Editor from '@monaco-editor/react';
 import { registerRenderer } from '../registry/registry';
@@ -8,6 +9,8 @@ import { readFile, writeFile } from '../api/vfs';
 import { runScript } from '../api/script';
 import { useToast } from '../hooks/useToast';
 import { Loading } from '../components/Loading';
+import { activeEditor } from '../services/activeEditor';
+import { commandService, Commands } from '../services/commandService';
 import type { RendererProps } from '../registry/types';
 import styles from './PythonEditor.module.css';
 
@@ -22,18 +25,16 @@ function getFileName(vfsPath: string | null): string {
 }
 
 function PythonEditor({ nodeId }: RendererProps) {
+  const navigate = useNavigate();
+  const { pathname } = useLocation();
   const { addToast } = useToast();
-  // 解码 VFS 路径（Sidebar 传入时用了 encodeURIComponent）
   const vfsPath = nodeId ? decodeURIComponent(nodeId) : null;
   const [code, setCode] = useState<string>('');
   const [loading, setLoading] = useState(false);
   const [saved, setSaved] = useState(true);
   const [running, setRunning] = useState(false);
-  const [output, setOutput] = useState<string | null>(null);
-  const [elapsedMs, setElapsedMs] = useState<number | null>(null);
   const codeRef = useRef(code);
   const pathRef = useRef(vfsPath);
-  const outputRef = useRef<HTMLDivElement>(null);
   codeRef.current = code;
   pathRef.current = vfsPath;
 
@@ -42,10 +43,7 @@ function PythonEditor({ nodeId }: RendererProps) {
     if (!vfsPath) return;
     setLoading(true);
     readFile(vfsPath)
-      .then(content => {
-        setCode(content);
-        setSaved(true);
-      })
+      .then(content => { setCode(content); setSaved(true); })
       .catch(err => {
         logError(`PythonEditor: 加载文件失败 (${vfsPath}): ${err}`);
         setCode(`# 加载失败: ${err}`);
@@ -53,7 +51,7 @@ function PythonEditor({ nodeId }: RendererProps) {
       .finally(() => setLoading(false));
   }, [vfsPath]);
 
-  // 当 TimelinePanel 恢复旧版本时，自动重载文件内容
+  // TimelinePanel 恢复旧版本时自动重载
   const vfsPathRef = useRef(vfsPath);
   vfsPathRef.current = vfsPath;
   useEffect(() => {
@@ -80,69 +78,40 @@ function PythonEditor({ nodeId }: RendererProps) {
     }
   }, [addToast]);
 
-  // 运行
+  // 运行 → 保存 → 跳转到运行结果页面
   const handleRun = useCallback(async () => {
     const p = pathRef.current;
     if (!p) return;
     setRunning(true);
-    setOutput(null);
-    setElapsedMs(null);
-    const start = performance.now();
     try {
       await handleSave();
-      const result = await runScript(p);
-      setOutput(result);
-      setElapsedMs(Math.round(performance.now() - start));
-      addToast('success', '运行完成');
+      const { run_path } = await runScript(p);
+      navigate(`/app/run/${encodeURIComponent(run_path)}`);
     } catch (err) {
       logError(`PythonEditor: 运行失败 (${p}): ${err}`);
-      setOutput(`运行失败: ${err}`);
-      setElapsedMs(Math.round(performance.now() - start));
       addToast('error', `运行失败: ${err}`);
     } finally {
       setRunning(false);
     }
-  }, [handleSave, addToast]);
+  }, [handleSave, addToast, navigate]);
 
-  // 设置 codeRef / pathRef 为最新值（effect 依赖不变，避免重复注册）
+  // 注册为活跃编辑器（命令系统通过 activeEditor 找到当前应操作的实例）
+  // 仅当 URL pathname 对应当前实例时才设为活跃
+  useEffect(() => {
+    const expectedPath = `/app/py/${encodeURIComponent(vfsPath ?? '')}`;
+    if (pathname !== expectedPath) return;
+
+    const unreg = activeEditor.setActive({
+      vfsPath,
+      save: handleSave,
+      run: handleRun,
+    });
+    return unreg;
+  }, [pathname, vfsPath, handleSave, handleRun]);
+
+  // 设置 codeRef / pathRef 为最新值
   codeRef.current = code;
   pathRef.current = vfsPath;
-
-  // 稳定的 handler 引用
-  const saveRef = useRef(handleSave);
-  const runRef = useRef(handleRun);
-  saveRef.current = handleSave;
-  runRef.current = handleRun;
-
-  // 快捷键 Ctrl+S / Ctrl+Enter（只注册一次），同时监听 toolbar 自定义事件
-  // 使用 pathRef 在事件处理中检查当前 URL 是否对应当前实例，避免多标签页时重复触发
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      // 多标签页防护：仅当前可见标签页对应的实例响应
-      const expectedPath = `/app/py/${encodeURIComponent(pathRef.current ?? '')}`;
-      if (window.location.pathname !== expectedPath) return;
-      if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); saveRef.current(); }
-      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); runRef.current(); }
-    };
-    const onSave = () => {
-      const expectedPath = `/app/py/${encodeURIComponent(pathRef.current ?? '')}`;
-      if (window.location.pathname !== expectedPath) return;
-      saveRef.current();
-    };
-    const onRun = () => {
-      const expectedPath = `/app/py/${encodeURIComponent(pathRef.current ?? '')}`;
-      if (window.location.pathname !== expectedPath) return;
-      runRef.current();
-    };
-    window.addEventListener('keydown', onKey);
-    window.addEventListener('python-editor:save', onSave);
-    window.addEventListener('python-editor:run', onRun);
-    return () => {
-      window.removeEventListener('keydown', onKey);
-      window.removeEventListener('python-editor:save', onSave);
-      window.removeEventListener('python-editor:run', onRun);
-    };
-  }, []);
 
   return (
     <div className={styles.container}>
@@ -154,14 +123,16 @@ function PythonEditor({ nodeId }: RendererProps) {
         {!saved && (
           <div className={styles.unsavedBadge}>● 未保存</div>
         )}
+        {running && (
+          <div className={styles.unsavedBadge} style={{ background: '#f0ad4e', color: '#fff' }}>
+            ⏳ 运行中...
+          </div>
+        )}
         <Editor
           height="100%"
           defaultLanguage="python"
           value={code}
-          onChange={v => {
-            setCode(v ?? '');
-            setSaved(false);
-          }}
+          onChange={v => { setCode(v ?? ''); setSaved(false); }}
           theme="vs-dark"
           options={{
             minimap: { enabled: false },
@@ -178,40 +149,6 @@ function PythonEditor({ nodeId }: RendererProps) {
           {saved ? '✓' : '●'} {getFileName(vfsPath)}
         </div>
       </div>
-
-      {output !== null && (
-        <div ref={outputRef} className={styles.outputPanel}>
-          <div className={styles.outputHeader}>
-            <span className={styles.outputStatus}>
-              {running ? '⏳ 运行中...' : '📋 输出'}
-              {elapsedMs !== null && !running && (
-                <span className={styles.elapsed}>({elapsedMs}ms)</span>
-              )}
-            </span>
-            <div className={styles.outputActions}>
-              <button
-                className={styles.outputBtn}
-                onClick={() => {
-                  navigator.clipboard.writeText(output).then(() => {
-                    addToast('info', '已复制到剪贴板');
-                  });
-                }}
-                title="复制输出"
-              >📋</button>
-              <button
-                className={styles.outputBtn}
-                onClick={() => setOutput(null)}
-                title="关闭面板"
-              >✕</button>
-            </div>
-          </div>
-          {output.includes('运行失败') ? (
-            <span className={styles.outputStderr}>{output}</span>
-          ) : (
-            <span>{output}</span>
-          )}
-        </div>
-      )}
       </>
       )}
     </div>
@@ -232,17 +169,8 @@ registerRenderer({
 // ── 工具栏 ────────────────────────────────────
 
 function PythonToolbar() {
-  const handleSave = () => window.dispatchEvent(new Event('python-editor:save'));
-  const handleRun = () => window.dispatchEvent(new Event('python-editor:run'));
-
-  // 分离窗口：通过自定义事件通知 WindowManager
-  const handleDetach = () => {
-    const pathParts = window.location.pathname.split('/');
-    const nodeId = pathParts[pathParts.length - 1];
-    window.dispatchEvent(new CustomEvent('detach-window', {
-      detail: { nodeId, label: `脚本 ${nodeId}` },
-    }));
-  };
+  const handleSave = () => commandService.executeCommand(Commands.EDITOR_SAVE);
+  const handleRun = () => commandService.executeCommand(Commands.EDITOR_RUN);
 
   return (
     <>
@@ -251,9 +179,6 @@ function PythonToolbar() {
       </button>
       <button className="btn btn-sm" onClick={handleSave}>
         💾 保存
-      </button>
-      <button className="btn btn-sm" onClick={handleDetach} title="在新窗口打开">
-        🪟 分离
       </button>
     </>
   );

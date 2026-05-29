@@ -8,7 +8,9 @@ import { error as logError, info as logInfo } from '@tauri-apps/plugin-log';
 import { useWindow } from '../hooks/useWindow';
 
 async function openDetachedWindow(nodeId: string, label: string): Promise<void> {
-  const windowLabel = `editor-${nodeId}-${Date.now()}`;
+  // Tauri 窗口标签仅允许 [a-zA-Z0-9\-/:_]，sanitize 非法字符
+  const safeId = nodeId.replace(/[^a-zA-Z0-9\-/:_]/g, '_').slice(0, 40);
+  const windowLabel = `editor-${safeId}-${Date.now()}`;
 
   try {
     const webview = new WebviewWindow(windowLabel, {

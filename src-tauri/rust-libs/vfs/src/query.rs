@@ -294,6 +294,68 @@ pub(crate) fn find_version_by_hash(conn: &rusqlite::Connection, node_id: i64, ha
     }
 }
 
+// ── linked_files 查询（运行记录去重）────────────────
+
+/// 按 linked_files LIKE 模式查询所有未删除的 run 类型节点
+pub fn query_run_nodes_by_linked_files(
+    conn: &rusqlite::Connection,
+    pattern: &str,
+) -> io::Result<Vec<NodeMeta>> {
+    let sql = format!(
+        "SELECT {} FROM nodes WHERE node_type='run' AND deleted=0 AND linked_files LIKE ?",
+        NODE_COLS
+    );
+    let mut stmt = conn.prepare(&sql).map_err(|e| map_io("query_run_nodes_like 准备", e))?;
+    stmt.query_map(rusqlite::params![&pattern], |row| row_to_node(row))
+        .map_err(|e| map_io("query_run_nodes_like 映射", e))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| map_io("query_run_nodes_like 收集", e))
+}
+
+/// 插入运行记录节点（带 linked_files）
+pub fn insert_run_node(
+    conn: &rusqlite::Connection,
+    name: &str,
+    parent_id: i64,
+    volume: &str,
+    linked_files: &str,
+) -> io::Result<i64> {
+    exec(
+        conn,
+        "INSERT INTO nodes (name, node_type, parent_id, volume, linked_files) VALUES (?, 'run', ?, ?, ?)",
+        rusqlite::params![&name, &parent_id, &volume, &linked_files],
+    )?;
+    Ok(conn.last_insert_rowid())
+}
+
+/// 插入运行记录节点，直接复制源节点的 BLOB 引用（去重复用）
+pub fn insert_run_node_from_source(
+    conn: &rusqlite::Connection,
+    name: &str,
+    parent_id: i64,
+    volume: &str,
+    linked_files: &str,
+    source_offset: i64,
+    source_size: i64,
+    source_hash: &str,
+) -> io::Result<i64> {
+    exec(
+        conn,
+        "INSERT INTO nodes (name, node_type, parent_id, volume, linked_files, \
+         storage_offset, size, content_hash) VALUES (?, 'run', ?, ?, ?, ?, ?, ?)",
+        rusqlite::params![&name, &parent_id, &volume, &linked_files,
+                          &source_offset, &source_size, &source_hash],
+    )?;
+    Ok(conn.last_insert_rowid())
+}
+
+/// 更新节点的 linked_files 字段
+pub fn update_node_linked_files(conn: &rusqlite::Connection, id: i64, linked_files: &str) -> io::Result<()> {
+    exec(conn, "UPDATE nodes SET linked_files=?, modified_at=datetime('now') WHERE id=?",
+        rusqlite::params![&linked_files, &id])?;
+    Ok(())
+}
+
 // ── row → NodeMeta ────────────────────────────────
 
 fn row_to_node(row: &rusqlite::Row) -> rusqlite::Result<NodeMeta> {

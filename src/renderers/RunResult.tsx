@@ -1,65 +1,127 @@
 // renderers/RunResult.tsx — .run 文件渲染器
 //
-// 显示脚本运行结果。.run 文件内容为 JSON，包含 script_path / stdout / stderr。
+// 三态渲染：loading（运行中）→ streaming（实时输出）→ complete（最终结果）
 
-import { useState, useEffect } from 'react';
-import { error as logError } from '@tauri-apps/plugin-log';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { registerRenderer } from '../registry/registry';
 import { readFile } from '../api/vfs';
+import { onRunOutput, onRunComplete } from '../api/events';
 import { Loading } from '../components/Loading';
 import type { RendererProps } from '../registry/types';
+import type { RunRecordContent, RunOutputPayload } from '../types';
 
-interface RunRecord {
-  script_path: string;
-  script_version?: string;
-  stdout: string;
-  stderr: string;
+/** 从 VFS 路径提取文件名（用于事件匹配） */
+function runNameFromPath(vfsPath: string): string {
+  try {
+    return decodeURIComponent(vfsPath.split('/').pop() ?? '');
+  } catch {
+    return vfsPath.split('/').pop() ?? '';
+  }
 }
 
 function RunResult({ nodeId }: RendererProps) {
   const vfsPath = nodeId ? decodeURIComponent(nodeId) : null;
-  const [record, setRecord] = useState<RunRecord | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [status, setStatus] = useState<'loading' | 'streaming' | 'complete'>('loading');
+  const [record, setRecord] = useState<RunRecordContent | null>(null);
+  const [streamOutputs, setStreamOutputs] = useState<RunOutputPayload[]>([]);
+  const currentPathRef = useRef(vfsPath);
+  currentPathRef.current = vfsPath;
 
+  // 加载已完成的 .run 文件
+  const loadFile = useCallback(async (path: string) => {
+    try {
+      const raw = await readFile(path);
+      const r: RunRecordContent = JSON.parse(raw);
+      setRecord(r);
+      setStreamOutputs(r.outputs || []);
+      setStatus('complete');
+    } catch {
+      setStatus('complete');
+    }
+  }, []);
+
+  // 初始加载 + 事件监听
   useEffect(() => {
     if (!vfsPath) return;
-    setLoading(true);
+
+    const runName = runNameFromPath(vfsPath);
+    let loaded = false;
+
+    // 尝试加载已有文件
+    setStatus('loading');
+    setStreamOutputs([]);
     readFile(vfsPath)
       .then((raw) => {
-        try { setRecord(JSON.parse(raw)); }
-        catch { setRecord(null); }
+        const r: RunRecordContent = JSON.parse(raw);
+        setRecord(r);
+        setStreamOutputs(r.outputs || []);
+        loaded = true;
+        setStatus(r.stdout || (r.outputs && r.outputs.length > 0) ? 'complete' : 'loading');
       })
-      .catch((err) => logError(`RunResult: 加载失败: ${err}`))
-      .finally(() => setLoading(false));
-  }, [vfsPath]);
+      .catch(() => {
+        setStatus('loading');
+      });
 
-  if (loading) return <Loading text="加载运行结果..." />;
-  if (!nodeId) return <div style={{ padding: 24, color: 'var(--gray-500)' }}>选择运行记录查看</div>;
-  if (!record) return <div style={{ padding: 24, color: 'var(--gray-500)' }}>无法解析运行记录</div>;
+    // 监听实时输出 —— 仅处理当前 run_path 的事件
+    const unlistenOutput = onRunOutput((payload) => {
+      const payloadRunName = runNameFromPath(payload.run_path);
+      if (payloadRunName !== runName) return; // ← 过滤串台
+      if (loaded) return; // 文件已加载完成，忽略后续流式事件
+      setStreamOutputs((prev) => [...prev, payload]);
+      setStatus('streaming');
+    });
+
+    // 监听运行完成 —— 仅处理当前 run_path 的事件
+    const unlistenComplete = onRunComplete((payload) => {
+      const payloadRunName = runNameFromPath(payload.run_path);
+      if (payloadRunName !== runName) return; // ← 过滤串台
+      if (currentPathRef.current) loadFile(currentPathRef.current);
+    });
+
+    return () => {
+      unlistenOutput.then((fn) => fn()).catch(() => {});
+      unlistenComplete.then((fn) => fn()).catch(() => {});
+    };
+  }, [vfsPath, loadFile]);
+
+  if (!nodeId) {
+    return <div style={{ padding: 24, color: 'var(--gray-500)' }}>选择运行记录查看</div>;
+  }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', fontFamily: 'var(--font-mono)' }}>
-      {/* 脚本信息 */}
+      {/* 状态栏 */}
       <div style={{ padding: '10px 16px', fontSize: 12, color: 'var(--gray-500)',
         borderBottom: '1px solid var(--gray-300)', background: 'var(--gray-100)', flexShrink: 0,
         display: 'flex', alignItems: 'center', gap: 12 }}>
-        <span>📄 脚本: {record.script_path}</span>
-        {record.script_version && (
-          <span style={{ fontSize: 11, color: 'var(--gray-400)', background: 'var(--gray-200)',
-            padding: '1px 6px', borderRadius: 3 }}>
-            v{record.script_version}
-          </span>
+        <span>📊 运行结果</span>
+        {status === 'loading' && <span style={{ color: '#f0ad4e' }}>⏳ 运行中...</span>}
+        {status === 'streaming' && <span style={{ color: '#5bc0de' }}>📡 实时输出中...</span>}
+        {status === 'complete' && <span style={{ color: '#5cb85c' }}>✅ 完成</span>}
+      </div>
+
+      {/* 实时输出流 */}
+      <div style={{ flex: 1, overflow: 'auto', padding: 16, fontSize: 13,
+        background: '#1e1e1e', color: '#d4d4d4', whiteSpace: 'pre-wrap' }}>
+        {status === 'loading' && streamOutputs.length === 0 && (
+          <Loading text="等待脚本输出..." />
+        )}
+        {streamOutputs.map((out, i) => (
+          <div key={i} style={{ marginBottom: 2 }}>
+            <span style={{ color: '#888', fontSize: 10 }}>{out.timestamp.slice(11, 19)} </span>
+            <span>{out.content}</span>
+          </div>
+        ))}
+        {status === 'complete' && record?.stdout && streamOutputs.length === 0 && (
+          <span>{record.stdout}</span>
+        )}
+        {status === 'complete' && !record?.stdout && streamOutputs.length === 0 && (
+          <span style={{ color: '#888' }}>（无输出）</span>
         )}
       </div>
 
-      {/* stdout */}
-      <div style={{ flex: 1, overflow: 'auto', padding: 16, fontSize: 13,
-        background: '#1e1e1e', color: '#d4d4d4', whiteSpace: 'pre-wrap' }}>
-        {record.stdout || <span style={{ color: '#888' }}>（无输出）</span>}
-      </div>
-
-      {/* stderr（如果有） */}
-      {record.stderr && (
+      {/* stderr */}
+      {record?.stderr && (
         <div style={{ maxHeight: 200, overflow: 'auto', padding: 16, fontSize: 13,
           background: '#2d1b1b', color: '#f48771', whiteSpace: 'pre-wrap',
           borderTop: '1px solid var(--gray-300)' }}>

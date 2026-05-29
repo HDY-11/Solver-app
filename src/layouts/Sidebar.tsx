@@ -117,8 +117,12 @@ function Sidebar({ mode }: { mode: NavMode }) {
   }, [refreshRoot, addToast]);
 
   const handleClick = useCallback((node: VfsNode, path: string) => {
-    // 文件夹：切换展开；文件：直接打开
-    if (node.node_type === 'folder' || node.node_type === 'run') {
+    // 选中（视觉高亮）
+    setSelectedPath(path);
+    setContextMenu(null);
+
+    // 文件夹：切换展开；文件（含 .run）：直接打开
+    if (node.node_type === 'folder') {
       setExpandedPaths(prev => {
         const next = new Set(prev);
         next.has(path) ? next.delete(path) : next.add(path);
@@ -131,14 +135,7 @@ function Sidebar({ mode }: { mode: NavMode }) {
         navigate(`/app/${renderer.name}/${encodeURIComponent(path)}`);
       }
     }
-    setSelectedPath(path);
-    setContextMenu(null);
   }, [navigate]);
-
-  // 悬停高亮（纯视觉反馈，不改状态）
-  const handleHover = useCallback((path: string) => {
-    setSelectedPath(path);
-  }, []);
 
   const handleContextMenu = useCallback(
     (e: React.MouseEvent, node: VfsNode, path: string) => {
@@ -149,13 +146,22 @@ function Sidebar({ mode }: { mode: NavMode }) {
 
   const closeContextMenu = useCallback(() => setContextMenu(null), []);
 
-  // 从模板创建脚本
-  const handleCreateFromTemplate = useCallback(async (code: string, _templateName: string) => {
+  // 从模板创建脚本（使用用户输入的名称，创建到选中文件夹下）
+  const handleCreateFromTemplate = useCallback(async (code: string, fileName: string) => {
     setShowNewScript(false);
-    // 生成默认文件名
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-    const name = `script_${timestamp}.py`;
-    const fullPath = `(vfs)/C/${name}`;
+    const name = fileName.trim() || `untitled_${Date.now()}.txt`;
+    // 确定目标父目录：选中文件夹 → 选中文件的父目录 → 根目录
+    let targetDir = '(vfs)/C';
+    if (selectedPath) {
+      // 查找选中节点的类型
+      const pathParts = selectedPath.split('/');
+      const lastName = pathParts[pathParts.length - 1];
+      const selNode = rootNodes.find(n => n.name === lastName);
+      if (selNode?.node_type === 'folder' || selNode?.node_type === 'run') {
+        targetDir = selectedPath;
+      }
+    }
+    const fullPath = `${targetDir}/${name}`;
     try {
       await writeFile(fullPath, code);
       addToast('success', `已创建: ${name}`);
@@ -165,7 +171,7 @@ function Sidebar({ mode }: { mode: NavMode }) {
       logError(`Sidebar: 创建脚本失败: ${err}`);
       addToast('error', `创建失败: ${err}`);
     }
-  }, [refreshRoot, addToast]);
+  }, [refreshRoot, addToast, selectedPath, rootNodes]);
 
   const handleDelete = useCallback(async () => {
     if (!contextMenu) return;
@@ -252,17 +258,12 @@ function Sidebar({ mode }: { mode: NavMode }) {
 
   // 稳定事件引用（供 memo 包裹的 TreeNode 使用）
   const handleClickRef = useRef(handleClick);
-  const handleHoverRef = useRef(handleHover);
   const handleContextMenuRef = useRef(handleContextMenu);
   handleClickRef.current = handleClick;
-  handleHoverRef.current = handleHover;
   handleContextMenuRef.current = handleContextMenu;
 
   const stableClick = useCallback((node: VfsNode, path: string) => {
     handleClickRef.current(node, path);
-  }, []);
-  const stableHover = useCallback((_n: VfsNode, path: string) => {
-    handleHoverRef.current(path);
   }, []);
   const stableContextMenu = useCallback((e: React.MouseEvent, node: VfsNode, path: string) => {
     handleContextMenuRef.current(e, node, path);
@@ -292,7 +293,7 @@ function Sidebar({ mode }: { mode: NavMode }) {
               node={{ id: 0, name: 'C:', node_type: 'folder', size: null, modified_at: '', version: '0.1.0' }}
               path="(vfs)/C" depth={0} expandedPaths={expandedPaths} selectedPath={selectedPath}
               preloadedChildren={filteredRootNodes} refreshKey={refreshKey}
-              onClick={stableClick} onHover={stableHover} onContextMenu={stableContextMenu} />
+              onClick={stableClick} onContextMenu={stableContextMenu} />
             {creating && (
               <div className={styles.inlineForm}>
                 <form onSubmit={e => { e.preventDefault(); submitCreate(); }}>
@@ -376,7 +377,7 @@ function Sidebar({ mode }: { mode: NavMode }) {
 const TreeNode = memo(function TreeNode({
   node, path, depth, expandedPaths, selectedPath,
   preloadedChildren, refreshKey,
-  onClick, onHover, onContextMenu,
+  onClick, onContextMenu,
 }: {
   node: VfsNode;
   path: string;
@@ -386,7 +387,6 @@ const TreeNode = memo(function TreeNode({
   preloadedChildren?: VfsNode[];
   refreshKey: number;
   onClick: (node: VfsNode, path: string) => void;
-  onHover: (node: VfsNode, path: string) => void;
   onContextMenu: (e: React.MouseEvent, node: VfsNode, path: string) => void;
 }) {
   const [children, setChildren] = useState<VfsNode[] | null>(
@@ -395,7 +395,7 @@ const TreeNode = memo(function TreeNode({
   const [lastRefresh, setLastRefresh] = useState(0);
   const isExpanded = expandedPaths.has(path);
   const isSelected = selectedPath === path;
-  const isFolder = node.node_type === 'folder' || node.node_type === 'run';
+  const isFolder = node.node_type === 'folder';
 
   // refreshKey 变化 → 清除缓存，触发重新加载
   useEffect(() => {
@@ -436,7 +436,6 @@ const TreeNode = memo(function TreeNode({
         className={nodeClasses}
         style={{ paddingLeft: 8 + depth * 16 }}
         onClick={() => onClick(node, path)}
-        onMouseEnter={() => onHover(node, path)}
         onContextMenu={e => onContextMenu(e, node, path)}
       >
         {isFolder && (
@@ -465,7 +464,6 @@ const TreeNode = memo(function TreeNode({
               selectedPath={selectedPath}
               refreshKey={refreshKey}
               onClick={onClick}
-              onHover={onHover}
               onContextMenu={onContextMenu}
             />
           ))}

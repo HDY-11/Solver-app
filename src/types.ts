@@ -32,12 +32,18 @@ export interface ScriptResultPayload {
   stderr: string;
 }
 
+/** SDK 实时输出的单条消息 */
+export interface RunOutputPayload {
+  run_path: string;
+  content: string;
+  timestamp: string;
+}
+
 /** .run 文件中存储的运行记录内容 */
 export interface RunRecordContent {
-  script_path: string;
-  script_version: string;
   stdout: string;
   stderr: string;
+  outputs?: RunOutputPayload[];
 }
 
 // =========================================================================

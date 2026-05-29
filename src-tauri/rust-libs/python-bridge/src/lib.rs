@@ -8,7 +8,46 @@ use std::ffi::CString;
 use std::fs;
 use std::io::{Error as IoError, ErrorKind, Result as IoResult};
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 use tokio::task::spawn_blocking;
+
+pub mod sdk;
+pub use sdk::RunOutputPayload;
+
+// ==================== SDK 运行上下文 ====================
+
+/// 单次脚本执行的上下文（run_path + 输出缓冲）
+pub struct RunContext {
+    pub run_path: String,
+    pub outputs: Vec<RunOutputPayload>,
+}
+
+/// 当前活跃执行的上下文（支持并发隔离）
+pub static CURRENT_RUN: Mutex<Option<RunContext>> = Mutex::new(None);
+
+/// 开始新一轮执行：设置 run_path，初始化输出缓冲
+pub fn begin_run(run_path: &str) {
+    let mut ctx = CURRENT_RUN.lock().unwrap_or_else(|e| e.into_inner());
+    *ctx = Some(RunContext {
+        run_path: run_path.to_string(),
+        outputs: Vec::new(),
+    });
+}
+
+/// 向当前执行的输出缓冲区追加一条记录
+pub fn push_sdk_output(payload: RunOutputPayload) {
+    if let Ok(mut ctx) = CURRENT_RUN.lock() {
+        if let Some(ref mut c) = *ctx {
+            c.outputs.push(payload);
+        }
+    }
+}
+
+/// 结束当前执行：取出输出缓冲并清空上下文
+pub fn take_sdk_outputs() -> Vec<RunOutputPayload> {
+    let mut ctx = CURRENT_RUN.lock().unwrap_or_else(|e| e.into_inner());
+    ctx.take().map(|c| c.outputs).unwrap_or_default()
+}
 
 // ==================== (临时)路径获取 ====================
 pub fn get_scripts_path() -> PathBuf {
@@ -42,11 +81,18 @@ pub fn init_python_venv(py: Python) -> PyResult<()> {
     Ok(())
 }
 
-pub async fn run_script(script_path: &str) -> PyResult<(String, String)> {
+pub struct ScriptRunResult {
+    pub stdout: String,
+    pub stderr: String,
+    pub outputs: Vec<RunOutputPayload>,
+}
+
+pub async fn run_script(script_path: &str) -> PyResult<ScriptRunResult> {
     let script_path = script_path.to_owned();
-    let result = spawn_blocking(move || -> PyResult<(String, String)> {
+    let result = spawn_blocking(move || -> PyResult<ScriptRunResult> {
         Python::attach(|py| {
             init_python_venv(py)?;
+            sdk::register_sdk(py)?;
 
             let script_content = std::fs::read_to_string(&script_path)
                 .map_err(|e| PyErr::new::<PyRuntimeError, _>(e.to_string()))?;
@@ -63,15 +109,21 @@ pub async fn run_script(script_path: &str) -> PyResult<(String, String)> {
             sys.setattr("stdout", &stdout)?;
             sys.setattr("stderr", &stderr)?;
 
-            let _ = py.run(&script_content, None, None);
+            // 不再吞掉 Python 异常：py.run 的错误向上传播
+            py.run(&script_content, None, None)?;
 
             let _ = sys.setattr("stdout", old_stdout);
             let _ = sys.setattr("stderr", old_stderr);
 
             let stdout_str: String = stdout.call_method0("getvalue")?.extract()?;
             let stderr_str: String = stderr.call_method0("getvalue")?.extract()?;
+            let outputs = take_sdk_outputs();
 
-            Ok((stdout_str, stderr_str))
+            Ok(ScriptRunResult {
+                stdout: stdout_str,
+                stderr: stderr_str,
+                outputs,
+            })
         })
     })
     .await
