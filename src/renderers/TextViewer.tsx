@@ -143,7 +143,7 @@ registerRenderer({
   name: 'text',
   extensions: ['.txt', '.log', '.csv', '.json', '.md', '.yaml', '.yml', '.toml', '.cfg', '.ini'],
   component: TextViewer,
-  icon: '📄',
+  icon: 'file',
   label: '文本',
   toolbar: () => <TextToolbar />,
 });

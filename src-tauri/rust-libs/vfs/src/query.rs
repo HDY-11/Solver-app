@@ -180,6 +180,24 @@ pub(crate) fn soft_delete_node(conn: &rusqlite::Connection, id: i64) -> io::Resu
     Ok(())
 }
 
+/// 确保卷根节点存在（用于 real_fs 同步）
+pub(crate) fn ensure_root_node(conn: &rusqlite::Connection, root_name: &str, volume: &str) -> io::Result<i64> {
+    if let Some(node) = find_node_by_name_and_parent(conn, root_name, None, volume)? {
+        return Ok(node.id);
+    }
+    let id = insert_node(conn, root_name, "folder", None, volume)?;
+    Ok(id)
+}
+
+/// 更新真实文件元数据（size + hash + modified_at），不改 storage_offset
+pub(crate) fn update_node_real_meta(conn: &rusqlite::Connection, id: i64, size: i64, hash: &str) -> io::Result<()> {
+    exec(conn,
+        "UPDATE nodes SET size=?, content_hash=?, modified_at=datetime('now') WHERE id=?",
+        rusqlite::params![&size, &hash, &id],
+    )?;
+    Ok(())
+}
+
 pub(crate) fn rename_node(conn: &rusqlite::Connection, id: i64, new_name: &str) -> io::Result<()> {
     exec(conn, "UPDATE nodes SET name=?, modified_at=datetime('now') WHERE id=?", rusqlite::params![&new_name, &id])?;
     Ok(())

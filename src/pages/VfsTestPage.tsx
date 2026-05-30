@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Icon } from '../utils/icons';
 import { invoke } from '@tauri-apps/api/core';
 import { error as logError, info as logInfo } from '@tauri-apps/plugin-log';
 import type { VfsNode, VfsInfo } from '../types';
@@ -101,10 +102,10 @@ const VfsTestPage: React.FC = () => {
       
       {/* VFS 信息 */}
       <div style={{ background: '#f5f5f5', padding: 16, borderRadius: 8, marginBottom: 16 }}>
-        <h3>📊 VFS 状态</h3>
+        <h3><Icon icon="chart" /> VFS 状态</h3>
         {vfsInfo ? (
           <div>
-            <p>C 盘状态: {vfsInfo.c_exists ? '✅ 正常' : '❌ 不存在'}</p>
+            <p>C 盘状态: {vfsInfo.c_exists ? <><Icon icon="success" /> 正常</> : <><Icon icon="error" /> 不存在</>}</p>
             <p>节点数: {vfsInfo.c_node_count}</p>
             <p>已用空间: {byteFmt(vfsInfo.c_used)} / {byteFmt(vfsInfo.c_total)}</p>
             <div style={{ background: '#ddd', borderRadius: 4, height: 8, marginTop: 8 }}>

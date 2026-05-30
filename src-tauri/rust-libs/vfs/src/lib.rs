@@ -1,5 +1,6 @@
 pub mod pool;
 pub mod query;
+pub mod real_fs;
 pub mod vir_file;
 pub mod vfs_core;
 

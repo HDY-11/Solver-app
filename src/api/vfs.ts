@@ -11,6 +11,7 @@ import type { VfsNode, VfsInfo, VfsVersion } from '../types';
 
 /** VFS 路径前缀，后端 vfs_* 命令要求此格式 */
 const VFS_PREFIX = '(vfs)/C';
+const VFS_ANY_PREFIX = '(vfs)/';
 
 // =========================================================================
 // 目录操作
@@ -146,7 +147,15 @@ export async function readVersion(filePath: string, contentHash: string): Promis
 // 版本号管理
 // =========================================================================
 
-/** 设置文件版本号 */
+/** 同步 B 盘（扫描 vault 目录 → 更新 DB） */
+export async function syncVault(): Promise<string> {
+  try {
+    return await invoke<string>('sync_vault');
+  } catch (err) {
+    logError(`[vfs] syncVault 失败: ${err}`);
+    throw err;
+  }
+}
 export async function setVersion(filePath: string, newVersion: string): Promise<void> {
   const fullPath = buildPath(filePath);
   logInfo(`[vfs] setVersion: ${fullPath} → ${newVersion}`);
@@ -167,7 +176,8 @@ export async function setVersion(filePath: string, newVersion: string): Promise<
  * 如果传入路径已包含 VFS_PREFIX，则直接返回，避免双重前缀。
  */
 function buildPath(path: string): string {
-  if (path.startsWith(VFS_PREFIX)) return path;
+  // 已包含完整 VFS 前缀（(vfs)/C 或 (vfs)/B）→ 直接返回
+  if (path.startsWith(VFS_ANY_PREFIX)) return path;
   // 去掉开头的 / 避免双斜杠
   const clean = path.replace(/^\/+/, '');
   return `${VFS_PREFIX}/${clean}`;

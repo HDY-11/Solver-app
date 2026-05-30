@@ -29,7 +29,7 @@ fn sdk_print(msg: String) -> PyResult<()> {
     // 推送到当前执行的收集缓冲区
     crate::push_sdk_output(payload.clone());
     // 同时通过 Tauri 事件推送到前端（附带 run_path）
-    emit!(dyn "run-output": payload);
+    emit!("run-output": payload);
     Ok(())
 }
 

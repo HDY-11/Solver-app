@@ -7,7 +7,7 @@ use serde::Serialize;
 use env_system as env;
 use anyhow::Error;
 
-mod services;
+mod config;
 
 #[derive(Clone, Serialize)]
 struct RunScriptResponse {
@@ -59,8 +59,11 @@ async fn run_script(path: String) -> Result<RunScriptResponse, AppError> {
 
     let script_name = std::path::Path::new(&path)
         .file_name().and_then(|n| n.to_str()).unwrap_or("unnamed");
+    // 提取卷名，区分 C 盘 / B 盘同名脚本
+    let volume = env::vfs_volume(std::path::Path::new(&path)).unwrap_or_else(|| "C".to_string());
     let run_name = format!("{}.run", script_name);
-    let run_path = format!("(vfs)/C/运行记录/{}", run_name);
+    let run_dir = format!("(vfs)/{}/运行记录", volume);
+    let run_path = format!("{}/{}", run_dir, run_name);
 
     // ── 2. 去重查询（JSON 解析，非字符串 contains）──
     let linked_pattern = format!("%\"script_hash\":\"{}\"%", script_hash);
@@ -90,9 +93,10 @@ async fn run_script(path: String) -> Result<RunScriptResponse, AppError> {
                     "script_hash": &script_hash,
                     "script_path": &path,
                     "script_version": &script_version,
+                    "volume": &volume,
                 }).to_string();
                 vfs::VirFile::create_run_node_from_source(
-                    &run_name, &lf, off, sz, ch,
+                    &run_name, &lf, off, sz, ch, &volume, &run_dir,
                 ).map_err(|e| AppError::Io(e))?;
                 log::info!("[run_script] 部分命中，复用 BLOB: {}", run_path);
                 return Ok(RunScriptResponse { run_path, status: "cached".into() });
@@ -105,8 +109,9 @@ async fn run_script(path: String) -> Result<RunScriptResponse, AppError> {
         "script_hash": &script_hash,
         "script_path": &path,
         "script_version": &script_version,
+        "volume": &volume,
     }).to_string();
-    vfs::VirFile::create_run_node(&run_name, &lf)
+    vfs::VirFile::create_run_node(&run_name, &lf, &volume, &run_dir)
         .map_err(|e| AppError::Io(e))?;
 
     // 提取到临时文件
@@ -153,12 +158,12 @@ async fn run_script(path: String) -> Result<RunScriptResponse, AppError> {
                     stdout: r.stdout,
                     stderr: r.stderr,
                 };
-                emit!(dyn "script-result": payload);
-                emit!(dyn "run-complete": serde_json::json!({"run_path": &run_path_clone}));
+                emit!("script-result": payload);
+                emit!("run-complete": serde_json::json!({"run_path": &run_path_clone}));
             }
             Err(e) => {
                 log::error!("[run_script] 后台执行失败: {:?}", e);
-                emit!(dyn "run-complete": serde_json::json!({"run_path": &run_path_clone, "error": format!("{:?}", e)}));
+                emit!("run-complete": serde_json::json!({"run_path": &run_path_clone, "error": format!("{:?}", e)}));
             }
         }
     });
@@ -218,10 +223,11 @@ fn vfs_exists(path: String) -> Result<bool, AppError> {
 
 #[command]
 fn vfs_delete(path: String) -> Result<(), AppError> {
-    // 如果是 .py 文件，级联删除对应的 .run 文件
+    // 如果是 .py 文件，级联删除对应卷中的 .run 文件
     if path.ends_with(".py") {
+        let volume = env::vfs_volume(std::path::Path::new(&path)).unwrap_or_else(|| "C".to_string());
         if let Some(name) = std::path::Path::new(&path).file_name().and_then(|n| n.to_str()) {
-            let run_path = format!("(vfs)/C/运行记录/{}.run", name);
+            let run_path = format!("(vfs)/{}/运行记录/{}.run", volume, name);
             if vfs::VirFile::exists(&run_path).unwrap_or(false) {
                 if let Ok(f) = vfs::VirFile::open(&run_path) {
                     let _ = f.delete();
@@ -246,7 +252,8 @@ fn vfs_rename(path: String, new_name: String) -> Result<(), AppError> {
 
     // 级联重命名 .run 文件
     if old_name.ends_with(".py") {
-        let old_run = format!("(vfs)/C/运行记录/{}.run", old_name);
+        let volume = env::vfs_volume(std::path::Path::new(&path)).unwrap_or_else(|| "C".to_string());
+        let old_run = format!("(vfs)/{}/运行记录/{}.run", volume, old_name);
         let new_run_name = format!("{}.run", new_name);
         if vfs::VirFile::exists(&old_run).unwrap_or(false) {
             if let Ok(f) = vfs::VirFile::open(&old_run) {
@@ -271,7 +278,8 @@ fn vfs_set_version(path: String, new_version: String) -> Result<(), AppError> {
 async fn detach_window(app: tauri::AppHandle, url_path: String, title: String) -> Result<String, AppError> {
     let label = format!("detached-{}", uuid::Uuid::new_v4().to_string().replace('-', "_"));
     // 使用 initialization_script 注入路由，比 URL 查询参数更可靠
-    let init_script = format!("window.__DETACH_ROUTE__ = '{}';", url_path.replace('\\', "\\\\").replace('\'', "\\'"));
+    // 通过 JSON 序列化确保所有 JS 特殊字符被正确转义
+    let init_script = format!("window.__DETACH_ROUTE__ = {};", serde_json::to_string(&url_path).unwrap());
     tauri::WebviewWindowBuilder::new(
         &app, &label, tauri::WebviewUrl::App("index.html".into())
     )
@@ -290,16 +298,8 @@ async fn detach_window(app: tauri::AppHandle, url_path: String, title: String) -
 #[command]
 fn emit_merge_request(path: String, label: String, icon: String) {
     use serde_json::json;
-    emit!(dyn "merge-request": json!({ "path": path, "label": label, "icon": icon }));
+    emit!("merge-request": json!({ "path": path, "label": label, "icon": icon }));
 }
-
-/// 窗口贴靠命令（Windows API）
-#[command]
-fn snap_left() { services::window_ops::snap_left(); }
-#[command]
-fn snap_right() { services::window_ops::snap_right(); }
-#[command]
-fn snap_maximize() { services::window_ops::snap_maximize(); }
 
 #[command]
 fn vfs_create_dir(path: String) -> Result<(), AppError> {
@@ -359,6 +359,21 @@ fn vfs_read_version(path: String, content_hash: String) -> Result<String, AppErr
         .inspect_log("解码历史版本 UTF-8 失败")
 }
 
+/// 同步 B 盘（扫描 vault 目录 → 更新 DB）
+#[command]
+fn sync_vault() -> Result<String, AppError> {
+    let pool = &vfs::get_vfs().db_pool;
+    vfs::real_fs::sync_real_volume(pool, "B")
+        .map(|_| "同步完成".to_string())
+        .map_err(|e| AppError::Io(e))
+}
+
+/// 获取 B 盘真实文件夹路径
+#[command]
+fn get_vault_path() -> Result<String, AppError> {
+    Ok(env_system::vault_dir().to_string_lossy().to_string())
+}
+
 #[derive(Clone, Serialize)]
 struct VfsInfo {
     c_exists: bool,
@@ -377,15 +392,37 @@ pub fn run() {
     log::info!("日志系统已初始化，准备启动 Tauri 应用...");
 
     eprintln!("[MAIN] 初始化 VFS...");
+    // 确保数据目录存在（避免后续写入失败）
+    std::fs::create_dir_all(env::app_data_dir()).unwrap_or_else(|e| {
+        eprintln!("[MAIN] 创建数据目录失败: {}", e);
+    });
+    std::fs::create_dir_all(env::config_dir()).unwrap_or_else(|e| {
+        eprintln!("[MAIN] 创建配置目录失败: {}", e);
+    });
+    std::fs::create_dir_all(env::vault_dir()).unwrap_or_else(|e| {
+        eprintln!("[MAIN] 创建资料目录失败: {}", e);
+    });
+    eprintln!("[MAIN] 数据目录: {}", env::app_data_dir().display());
     vfs::init_vfs(
         &env::database_path(),
-        &[("C", 64 * 1024 * 1024)],
+        &[("C", 64 * 1024 * 1024), ("B", 64 * 1024 * 1024)],
     )
     .expect("VFS 初始化失败");
     eprintln!("[MAIN] VFS 初始化完成");
 
+    // 同步 B 盘（真实文件 → DB）
+    if let Err(e) = vfs::real_fs::sync_real_volume(
+        &vfs::get_vfs().db_pool,
+        "B",
+    ) {
+        eprintln!("[MAIN] B盘同步失败: {}", e);
+    } else {
+        eprintln!("[MAIN] B盘同步完成");
+    }
+
     tauri::Builder::default()
         .manage(log_handle.clone())
+        .plugin(tauri_plugin_titlebar::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_log::Builder::default()
@@ -408,12 +445,14 @@ pub fn run() {
             vfs_set_version,
             detach_window,
             emit_merge_request,
-            snap_left,
-            snap_right,
-            snap_maximize,
             vfs_info,
             vfs_list_versions,
             vfs_read_version,
+            config::read_settings,
+            config::write_settings,
+            config::reset_settings,
+            sync_vault,
+            get_vault_path,
         ])
         .setup(move |app| {
             init_event_system(app.handle().clone()).unwrap_log();

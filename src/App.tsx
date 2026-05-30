@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
 import { BrowserRouter, useNavigate } from 'react-router-dom';
-import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import { Icon } from './utils/icons';
 import { ToastProvider } from './hooks/useToast';
 import { TabsProvider, useTabs } from './hooks/useTabs';
+import { SettingsProvider } from './hooks/useSettings';
 import ToastContainer from './components/Toast';
 import ShortcutHelp from './components/ShortcutHelp';
 import Header from './layouts/Header';
@@ -78,11 +79,9 @@ function DetachedTitlebar() {
         Solver
       </span>
       <div style={{ marginLeft: 'auto', display: 'flex', WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
-        <button className="titlebar-btn" onClick={() => invoke('snap_left')} title="贴靠到左侧">⬅</button>
-        <button className="titlebar-btn" onClick={() => invoke('snap_right')} title="贴靠到右侧">➡</button>
-        <button className="titlebar-btn" onClick={() => appWindow.minimize()}>─</button>
-        <button className="titlebar-btn" onClick={handleMaximize}>{maximized ? '❐' : '□'}</button>
-        <button className="titlebar-btn titlebar-close" onClick={() => appWindow.close()}>✕</button>
+        <button className="titlebar-btn" onClick={() => appWindow.minimize()}><Icon icon="minus" /></button>
+        <button className="titlebar-btn" onClick={handleMaximize}><Icon icon={maximized ? 'maximize' : 'square'} /></button>
+        <button className="titlebar-btn titlebar-close" onClick={() => appWindow.close()}><Icon icon="xmark" /></button>
       </div>
     </div>
   );
@@ -100,6 +99,7 @@ function DetachedApp() {
     <BrowserRouter>
       <DetachedRouteHandler />
       <ToastProvider>
+        <SettingsProvider>
         <TabsProvider>
           <div style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
             <DetachedTitlebar />
@@ -108,6 +108,7 @@ function DetachedApp() {
             <Main />
           </div>
         </TabsProvider>
+        </SettingsProvider>
       </ToastProvider>
     </BrowserRouter>
   );
@@ -155,6 +156,7 @@ function App() {
     <BrowserRouter>
       <DetachedRouteHandler />
       <ToastProvider>
+        <SettingsProvider>
         <TabsProvider>
           <MergeListenerWrapper />
           <div className="App">
@@ -169,6 +171,7 @@ function App() {
           <ToastContainer />
           <ShortcutHelp />
         </TabsProvider>
+        </SettingsProvider>
       </ToastProvider>
     </BrowserRouter>
   );

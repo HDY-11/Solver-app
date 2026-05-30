@@ -11,6 +11,8 @@ import { useToast } from '../hooks/useToast';
 import { Loading } from '../components/Loading';
 import { activeEditor } from '../services/activeEditor';
 import { commandService, Commands } from '../services/commandService';
+import { useSettings } from '../hooks/useSettings';
+import { Icon } from '../utils/icons';
 import type { RendererProps } from '../registry/types';
 import styles from './PythonEditor.module.css';
 
@@ -28,6 +30,7 @@ function PythonEditor({ nodeId }: RendererProps) {
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const { addToast } = useToast();
+  const { settings } = useSettings();
   const vfsPath = nodeId ? decodeURIComponent(nodeId) : null;
   const [code, setCode] = useState<string>('');
   const [loading, setLoading] = useState(false);
@@ -121,11 +124,11 @@ function PythonEditor({ nodeId }: RendererProps) {
       <>
       <div className={styles.editorArea}>
         {!saved && (
-          <div className={styles.unsavedBadge}>● 未保存</div>
+          <div className={styles.unsavedBadge}><Icon icon="circle" /> 未保存</div>
         )}
         {running && (
           <div className={styles.unsavedBadge} style={{ background: '#f0ad4e', color: '#fff' }}>
-            ⏳ 运行中...
+            <Icon icon="spinner" /> 运行中...
           </div>
         )}
         <Editor
@@ -133,20 +136,20 @@ function PythonEditor({ nodeId }: RendererProps) {
           defaultLanguage="python"
           value={code}
           onChange={v => { setCode(v ?? ''); setSaved(false); }}
-          theme="vs-dark"
+          theme={settings.theme === 'light' ? 'vs' : 'vs-dark'}
           options={{
             minimap: { enabled: false },
-            fontSize: 14,
+            fontSize: settings.font_size,
             fontFamily: 'var(--font-mono)',
             padding: { top: 16, bottom: 16 },
             scrollBeyondLastLine: false,
             automaticLayout: true,
-            tabSize: 4,
+            tabSize: settings.tab_size,
             insertSpaces: true,
           }}
         />
         <div className={styles.fileBadge}>
-          {saved ? '✓' : '●'} {getFileName(vfsPath)}
+          <Icon icon={saved ? 'check' : 'circle'} /> {getFileName(vfsPath)}
         </div>
       </div>
       </>
@@ -161,7 +164,7 @@ registerRenderer({
   name: 'py',
   extensions: ['.py'],
   component: PythonEditor,
-  icon: '🐍',
+  icon: 'python',
   label: 'Python',
   toolbar: () => <PythonToolbar />,
 });
@@ -175,10 +178,10 @@ function PythonToolbar() {
   return (
     <>
       <button className="btn btn-primary btn-sm" onClick={handleRun}>
-        ▶ 运行
+        <Icon icon="play" /> 运行
       </button>
       <button className="btn btn-sm" onClick={handleSave}>
-        💾 保存
+        <Icon icon="save" /> 保存
       </button>
     </>
   );

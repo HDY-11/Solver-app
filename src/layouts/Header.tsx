@@ -2,9 +2,9 @@
 
 import { useState, useCallback, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { getRendererByExtension } from '../registry/registry';
+import { Icon } from '../utils/icons';
 
 function Header() {
   const navigate = useNavigate();
@@ -51,8 +51,8 @@ function Header() {
   return (
     <header className="app-header" data-tauri-drag-region>
       <div style={{ display: 'flex', gap: 4, WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
-        <button onClick={() => navigate(-1)} title="后退">←</button>
-        <button onClick={() => navigate(1)} title="前进">→</button>
+        <button onClick={() => navigate(-1)} title="后退"><Icon icon="chevron-left" /></button>
+        <button onClick={() => navigate(1)} title="前进"><Icon icon="chevron-right" /></button>
       </div>
       <input
         className="header-address"
@@ -67,13 +67,11 @@ function Header() {
         placeholder="输入 VFS 路径，如 script.py"
       />
       <div className="titlebar-controls" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
-        <button className="titlebar-btn" onClick={() => invoke('snap_left')} title="贴靠到左侧">⬅</button>
-        <button className="titlebar-btn" onClick={() => invoke('snap_right')} title="贴靠到右侧">➡</button>
-        <button className="titlebar-btn" onClick={() => appWindow.minimize()} title="最小化">─</button>
+        <button className="titlebar-btn" onClick={() => appWindow.minimize()} title="最小化"><Icon icon="minus" /></button>
         <button className="titlebar-btn" onClick={handleMaximize} title={maximized ? '还原' : '最大化'}>
-          {maximized ? '❐' : '□'}
+          <Icon icon={maximized ? 'maximize' : 'square'} />
         </button>
-        <button className="titlebar-btn titlebar-close" onClick={() => appWindow.close()} title="关闭">✕</button>
+        <button className="titlebar-btn titlebar-close" onClick={() => appWindow.close()} title="关闭"><Icon icon="xmark" /></button>
       </div>
     </header>
   );

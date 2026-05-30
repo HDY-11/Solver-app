@@ -132,10 +132,15 @@ impl VirtualFileSystem {
             // conn 离开作用域，自动归还到池
         }
 
-        // 5. 打开 BlobStore
+        // 5. 打开 BlobStore（仅非真实文件卷）
         log::debug!("[VFS-core]   打开 BlobStore 卷...");
         let blob_pools = DashMap::new();
         for &(volume, max_size) in volumes {
+            // B 盘等真实文件卷不需要 BlobStore
+            if crate::vir_file::is_real_volume(volume) {
+                log::debug!("[VFS-core]     卷 '{}' 是真实文件卷，跳过 BlobStore", volume);
+                continue;
+            }
             let blob_path = env_system::blob_path(volume);
             log::debug!("[VFS-core]     卷 '{}': path='{}', max_size={}MB", 
                 volume, blob_path.display(), max_size / 1024 / 1024);

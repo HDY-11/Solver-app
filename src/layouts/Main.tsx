@@ -21,17 +21,17 @@ function isWelcome(pathname: string): boolean {
 function getTabLabel(pathname: string): { label: string; icon: string } {
   const parts = pathname.split('/').filter(Boolean);
   const renderer = parts.length >= 2 ? parts[1] : null;
-  const content = parts.length >= 3 ? parts[2] : null;
+  const content = parts.length >= 3 ? parts.slice(2).join('/') : null;
   if (renderer === 'window' && content) {
     const panel = getPanel(content);
-    if (panel) return { label: panel.label, icon: '📌' };
+    if (panel) return { label: panel.label, icon: 'pin' };
   }
   const r = renderer ? getRenderer(renderer) : undefined;
   if (r) {
     const name = decodeURIComponent((content ?? '').split('/').pop() ?? '');
     return { label: name, icon: r.icon };
   }
-  return { label: pathname, icon: '📄' };
+  return { label: pathname, icon: 'file' };
 }
 
 function Main() {
@@ -46,15 +46,13 @@ function Main() {
     }
   }, [pathname, registerTab]);
 
-  // 确保当前 pathname 的缓存条目存在（在 effect 中创建，不在 render 中改 ref）
-  useEffect(() => {
-    const map = cacheRef.current;
-    if (isWelcome(pathname)) return;
-    if (map.has(pathname)) return;
+  const map = cacheRef.current;
 
+  // 同步创建缓存条目（render 阶段，非 effect），避免首次导航出现空白帧
+  if (!isWelcome(pathname) && !map.has(pathname)) {
     const parts = pathname.split('/').filter(Boolean);
     const renderer = parts.length >= 2 ? parts[1] : null;
-    const content = parts.length >= 3 ? parts[2] : null;
+    const content = parts.length >= 3 ? parts.slice(2).join('/') : null;
 
     if (renderer === 'window' && content) {
       const panelDef = getPanel(content);
@@ -63,9 +61,7 @@ function Main() {
       const rendererDef = getRenderer(renderer);
       if (rendererDef) map.set(pathname, { key: pathname, element: <rendererDef.component nodeId={content ?? null} /> });
     }
-  }, [pathname]);
-
-  const map = cacheRef.current;
+  }
   if (!map.has('/')) {
     map.set('/', { key: '/', element: <WelcomeView /> });
   }

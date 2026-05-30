@@ -17,11 +17,11 @@ function getRendererFromPath(pathname: string): string | null {
   return null;
 }
 
-/** 从 /app/py/xxx 格式路径中提取 content（编码后的 VFS 路径） */
+/** 从 /app/py/xxx 格式路径中提取 content（编码后的 VFS 路径，支持多段） */
 function getContentFromPath(pathname: string): string | null {
   const parts = pathname.split('/').filter(Boolean);
   if (parts.length >= 3 && parts[0] === 'app') {
-    return parts[2];
+    return parts.slice(2).join('/');
   }
   return null;
 }

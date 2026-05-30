@@ -5,6 +5,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { useTabs } from '../hooks/useTabs';
+import { Icon } from '../utils/icons';
 
 function Nav({ detached }: { detached?: boolean }) {
   const { pathname } = useLocation();
@@ -53,7 +54,7 @@ function Nav({ detached }: { detached?: boolean }) {
     if (parts.length >= 2) {
       const content = parts.slice(2).join('/');
       const label = decodeURIComponent(content?.split('/').pop() ?? tabPath);
-      registerTab({ path: tabPath, label, icon: '📄' });
+      registerTab({ path: tabPath, label, icon: 'file' });
       navigate(tabPath);
     }
   }, [navigate, registerTab]);
@@ -109,7 +110,7 @@ function Nav({ detached }: { detached?: boolean }) {
               onContextMenu={(e) => handleContextMenu(e, tab.path)}
               title={detached ? '右键可合并回主窗口' : '拖拽可分离窗口'}
             >
-              <span className="nav-tab__icon">{tab.icon}</span>
+              <span className="nav-tab__icon"><Icon icon={tab.icon} /></span>
               <span className="nav-tab__label">{tab.label}</span>
               <button
                 className="nav-tab__close"
@@ -123,7 +124,7 @@ function Nav({ detached }: { detached?: boolean }) {
                   }
                 }}
                 title="关闭"
-              >✕</button>
+              ><Icon icon="xmark" /></button>
             </span>
           );
         })
@@ -133,7 +134,7 @@ function Nav({ detached }: { detached?: boolean }) {
     {contextMenu && (
       <div className="context-menu" style={{ left: contextMenu.x, top: contextMenu.y }}
         onClick={() => setContextMenu(null)}>
-        <div className="context-menu__item" onClick={handleMergeBack}>📥 合并回主窗口</div>
+        <div className="context-menu__item" onClick={handleMergeBack}><Icon icon="download" /> 合并回主窗口</div>
       </div>
     )}
     </>

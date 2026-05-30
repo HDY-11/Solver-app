@@ -97,6 +97,11 @@ pub fn config_dir() -> PathBuf {
     app_data_dir().join(CONFIG_DIR_NAME)
 }
 
+/// 应用配置文件路径 (settings.toml)。
+pub fn config_file_path() -> PathBuf {
+    config_dir().join("settings.toml")
+}
+
 /// 内嵌 Python 的 site-packages 路径。
 pub fn embedded_site_packages() -> PathBuf {
     let mut root = exe_root();

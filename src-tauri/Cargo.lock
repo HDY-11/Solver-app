@@ -4316,6 +4316,7 @@ dependencies = [
  "tauri-plugin-dialog",
  "tauri-plugin-log",
  "tauri-plugin-opener",
+ "tauri-plugin-titlebar",
  "thiserror 2.0.18",
  "tokio",
  "toml 1.1.2+spec-1.1.0",
@@ -4772,6 +4773,18 @@ dependencies = [
  "url",
  "windows 0.61.3",
  "zbus",
+]
+
+[[package]]
+name = "tauri-plugin-titlebar"
+version = "0.1.0"
+dependencies = [
+ "event-system",
+ "log",
+ "serde",
+ "serde_json",
+ "tauri",
+ "windows 0.62.2",
 ]
 
 [[package]]

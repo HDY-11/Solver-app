@@ -7,6 +7,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useLocation } from 'react-router-dom';
 import { error as logError } from '@tauri-apps/plugin-log';
 import { listVersions, readVersion, writeFile } from '../api/vfs';
+import { Icon } from '../utils/icons';
 import { useToast } from '../hooks/useToast';
 import { fmtSize } from '../types';
 import type { VfsVersion } from '../types';
@@ -106,7 +107,7 @@ function TimelinePanel() {
                 key={v.content_hash}
                 className={`timeline-item ${isActive ? 'timeline-item--latest' : ''}`}
               >
-                <span className="timeline-item__dot">{isActive ? '●' : '○'}</span>
+                <span className="timeline-item__dot"><Icon icon={isActive ? 'circle' : 'circle'} /></span>
                 <div className="timeline-item__info">
                   <span className="timeline-item__time">
                     {v.created_at.replace('T', ' ').slice(0, 19)}
@@ -123,7 +124,7 @@ function TimelinePanel() {
                     disabled={restoring === v.content_hash}
                     onClick={() => handleRestore(v)}
                   >
-                    {restoring === v.content_hash ? '⏳' : '↩'}
+                    <Icon icon={restoring === v.content_hash ? 'spinner' : 'restore'} />
                   </button>
                 )}
               </div>

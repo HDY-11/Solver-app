@@ -2,7 +2,8 @@
 //
 // 竖向图标导航：资源管理器 / 运行结果管理器
 
-import { useState, useCallback } from 'react';
+import { useState } from 'react';
+import { Icon } from '../utils/icons';
 
 export type NavMode = 'files' | 'runs';
 
@@ -12,8 +13,8 @@ interface NavBarProps {
 }
 
 const ITEMS: { id: NavMode; icon: string; label: string }[] = [
-  { id: 'files', icon: '📁', label: '资源管理器' },
-  { id: 'runs', icon: '📊', label: '运行结果' },
+  { id: 'files', icon: 'folder', label: '资源管理器' },
+  { id: 'runs', icon: 'chart', label: '运行结果' },
 ];
 
 function NavBar({ mode, onChange }: NavBarProps) {
@@ -26,7 +27,7 @@ function NavBar({ mode, onChange }: NavBarProps) {
           title={item.label}
           onClick={() => onChange(item.id)}
         >
-          <span className="navbar-btn__icon">{item.icon}</span>
+          <span className="navbar-btn__icon"><Icon icon={item.icon} /></span>
         </button>
       ))}
     </nav>

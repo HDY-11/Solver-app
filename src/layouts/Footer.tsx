@@ -1,50 +1,36 @@
-// layouts/Footer.tsx — 底部状态栏：渲染器信息 + VFS 用量 + 快捷入口 + 主题切换
-//
-// 使用 useLocation().pathname 手动解析当前 renderer（Footer 在 <Routes> 外部）。
+// layouts/Footer.tsx — 底部状态栏
 
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useState, useEffect } from 'react';
 import { error as logError } from '@tauri-apps/plugin-log';
 import { getRenderer } from '../registry/registry';
+import { Icon } from '../utils/icons';
 import { getInfo } from '../api/vfs';
-import type { VfsInfo, Theme } from '../types';
+import { useSettings } from '../hooks/useSettings';
+import type { VfsInfo } from '../types';
 import { fmtSize } from '../types';
-
-function loadTheme(): Theme {
-  try {
-    const raw = localStorage.getItem('solver-settings');
-    if (raw) return JSON.parse(raw).theme === 'light' ? 'light' : 'dark';
-  } catch { /* ignore */ }
-  return 'dark';
-}
 
 function Footer() {
   const { pathname } = useLocation();
   const navigate = useNavigate();
+  const { settings, update } = useSettings();
   const [vfsInfo, setVfsInfo] = useState<VfsInfo | null>(null);
   const [expanded, setExpanded] = useState(false);
-  const [theme, setTheme] = useState<Theme>(loadTheme);
+
+  const theme = settings.theme;
 
   // 手动解析 renderer（Footer 在 Routes 外，useParams 不可用）
   const parts = pathname.split('/').filter(Boolean);
   const renderer = parts.length >= 2 && parts[0] === 'app' ? parts[1] : null;
   const rendererDef = renderer ? getRenderer(renderer) : undefined;
 
+  // 主题立即生效
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
   }, [theme]);
 
   const toggleTheme = () => {
-    setTheme((prev) => {
-      const next: Theme = prev === 'dark' ? 'light' : 'dark';
-      try {
-        const raw = localStorage.getItem('solver-settings');
-        const settings = raw ? JSON.parse(raw) : {};
-        settings.theme = next;
-        localStorage.setItem('solver-settings', JSON.stringify(settings));
-      } catch { /* ignore */ }
-      return next;
-    });
+    update({ theme: theme === 'dark' ? 'light' : 'dark' });
   };
 
   // 合并为一个 effect：展开或路径变化时刷新 VFS 信息
@@ -62,7 +48,7 @@ function Footer() {
     <footer className="app-footer">
       {/* 左侧：当前状态 */}
       <span>
-        {rendererDef ? `${rendererDef.icon} ${rendererDef.label}` : '就绪'}
+        {rendererDef ? <><Icon icon={rendererDef.icon} /> {rendererDef.label}</> : '就绪'}
       </span>
 
       {/* VFS 使用量 */}
@@ -95,21 +81,21 @@ function Footer() {
         title={theme === 'dark' ? '切换亮色主题' : '切换深色主题'}
         onClick={toggleTheme}
       >
-        {theme === 'dark' ? '☀️' : '🌙'}
+        <Icon icon={theme === 'dark' ? 'sun' : 'moon'} />
       </button>
       <button
         className="icon-btn"
         title={expanded ? '收起状态' : '展开状态'}
         onClick={() => setExpanded(!expanded)}
       >
-        📊
+        <Icon icon="chart" />
       </button>
       <button
         className="icon-btn"
         title="设置"
         onClick={() => navigate('/app/window/setting')}
       >
-        ⚙
+        <Icon icon="gear" />
       </button>
     </footer>
   );

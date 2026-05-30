@@ -7,8 +7,9 @@ import { useState, useEffect, useCallback, useRef, memo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { error as logError } from '@tauri-apps/plugin-log';
 import { getRendererByExtension } from '../registry/registry';
-import { listDir, createDir, writeFile, deleteNode, renameFile, setVersion } from '../api/vfs';
+import { listDir, createDir, writeFile, deleteNode, renameFile, setVersion, syncVault } from '../api/vfs';
 import { useToast } from '../hooks/useToast';
+import { Icon } from '../utils/icons';
 import ConfirmDialog from '../components/ConfirmDialog';
 import NewScriptDialog from '../components/NewScriptDialog';
 import TimelinePanel from '../components/TimelinePanel';
@@ -21,19 +22,19 @@ import styles from './Sidebar.module.css';
 // ── 辅助 ──────────────────────────────────────
 
 function nodeIcon(node: VfsNode): string {
-  if (node.node_type === 'run') return '📊';
-  if (node.node_type === 'folder') return '📁';
+  if (node.node_type === 'run') return 'chart';
+  if (node.node_type === 'folder') return 'folder';
   const ext = node.name.split('.').pop() ?? '';
   const icons: Record<string, string> = {
-    py: '🐍', r: '📊', jl: '🔢', sps: '📈',
-    html: '🌐', htm: '🌐', csv: '📋', txt: '📄',
-    log: '📜', json: '📦', md: '📝',
-    png: '🖼️', jpg: '🖼️', svg: '🖼️',
-    sav: '💾', h5: '💾', pkl: '💾',
-    sh: '⚡', bat: '⚡', ps1: '⚡',
-    run: '📊',
+    py: 'python', r: 'chart', jl: 'chart', sps: 'chart',
+    html: 'globe', htm: 'globe', csv: 'table', txt: 'file',
+    log: 'scroll', json: 'box', md: 'note',
+    png: 'image', jpg: 'image', svg: 'image',
+    sav: 'save', h5: 'save', pkl: 'save',
+    sh: 'bolt', bat: 'bolt', ps1: 'bolt',
+    run: 'chart',
   };
-  return icons[ext] ?? '📄';
+  return icons[ext] ?? 'file';
 }
 
 // ── Sidebar ───────────────────────────────────
@@ -42,6 +43,7 @@ function Sidebar({ mode }: { mode: NavMode }) {
   const navigate = useNavigate();
   const { addToast } = useToast();
   const [rootNodes, setRootNodes] = useState<VfsNode[]>([]);
+  const [bRootNodes, setBRootNodes] = useState<VfsNode[]>([]);
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set(['(vfs)/C']));
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<{
@@ -66,10 +68,14 @@ function Sidebar({ mode }: { mode: NavMode }) {
   const [refreshKey, setRefreshKey] = useState(0);
   const [searchQuery, setSearchQuery] = useState('');
 
-  // 过滤后的根节点列表
-  const filteredRootNodes = searchQuery.trim()
+  // 过滤后的根节点列表（按模式 + 搜索词）
+  const filteredRootNodes = (searchQuery.trim()
     ? rootNodes.filter(n => n.name.toLowerCase().includes(searchQuery.toLowerCase()))
-    : rootNodes;
+    : rootNodes).filter(n => {
+      if (mode === 'files') return n.node_type !== 'run';
+      if (mode === 'runs') return n.node_type === 'run';
+      return true;
+    });
 
   // ref 保持最新值
   const creatingRef = useRef(creating);
@@ -79,10 +85,14 @@ function Sidebar({ mode }: { mode: NavMode }) {
 
   const refreshRoot = useCallback(async () => {
     try {
-      const nodes = await listDir('(vfs)/C');
-      setRootNodes(nodes);
+      const [cNodes, bNodes] = await Promise.all([
+        listDir('(vfs)/C'),
+        listDir('(vfs)/B'),
+      ]);
+      setRootNodes(cNodes);
+      setBRootNodes(bNodes);
     } catch (err) {
-      logError(`Sidebar: 加载根目录失败: ${err}`);
+      logError(`Sidebar: 加载目录失败: ${err}`);
     }
   }, []);
 
@@ -277,15 +287,16 @@ function Sidebar({ mode }: { mode: NavMode }) {
             <span className="sidebar-toolbar__title">工作台</span>
             <div className="sidebar-toolbar__actions">
               <button className="icon-btn" title="新建 Python 脚本"
-                onClick={() => setShowNewScript(true)}>📄+</button>
+                onClick={() => setShowNewScript(true)}><Icon icon="file-pen" /></button>
               <button className="icon-btn" title="新建文件夹"
-                onClick={() => handleStartCreate('(vfs)/C', 'folder')}>📁+</button>
-              <button className="icon-btn" title="刷新"
-                onClick={() => { refreshRoot(); setRefreshKey(k => k + 1); }}>🔄</button>
+                onClick={() => handleStartCreate('(vfs)/C', 'folder')}><Icon icon="folder-plus" /></button>
+              <button className="icon-btn" title="刷新（含B盘同步）"
+                onClick={() => { syncVault().finally(refreshRoot); setRefreshKey(k => k + 1); }}><Icon icon="rotate" /></button>
             </div>
           </div>
           <div className={styles.searchBox}>
-            <input className={styles.searchInput} placeholder="🔍 搜索文件..."
+            <span className={styles.searchIcon}><Icon icon="search" /></span>
+            <input className={styles.searchInput} placeholder="搜索文件..."
               value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
           </div>
           <div className="sidebar-tree">
@@ -293,6 +304,15 @@ function Sidebar({ mode }: { mode: NavMode }) {
               node={{ id: 0, name: 'C:', node_type: 'folder', size: null, modified_at: '', version: '0.1.0' }}
               path="(vfs)/C" depth={0} expandedPaths={expandedPaths} selectedPath={selectedPath}
               preloadedChildren={filteredRootNodes} refreshKey={refreshKey}
+              onClick={stableClick} onContextMenu={stableContextMenu} />
+            <TreeNode
+              node={{ id: -1, name: 'B:', node_type: 'folder', size: null, modified_at: '', version: '0.1.0' }}
+              path="(vfs)/B" depth={0} expandedPaths={expandedPaths} selectedPath={selectedPath}
+              preloadedChildren={bRootNodes.filter(n => {
+                if (mode === 'files') return n.node_type !== 'run';
+                if (mode === 'runs') return n.node_type === 'run';
+                return true;
+              })} refreshKey={refreshKey}
               onClick={stableClick} onContextMenu={stableContextMenu} />
             {creating && (
               <div className={styles.inlineForm}>
@@ -307,13 +327,13 @@ function Sidebar({ mode }: { mode: NavMode }) {
           {contextMenu && (
             <div className="context-menu" style={{ left: contextMenu.x, top: contextMenu.y }}>
               {contextMenu.node.node_type === 'folder' && (<>
-                <div className="context-menu__item" onClick={() => handleStartCreate(contextMenu.path, 'file')}>📄 新建文件</div>
-                <div className="context-menu__item" onClick={() => handleStartCreate(contextMenu.path, 'folder')}>📁 新建文件夹</div>
+                <div className="context-menu__item" onClick={() => handleStartCreate(contextMenu.path, 'file')}><Icon icon="file" /> 新建文件</div>
+                <div className="context-menu__item" onClick={() => handleStartCreate(contextMenu.path, 'folder')}><Icon icon="folder" /> 新建文件夹</div>
                 <div className="context-menu__divider" />
               </>)}
-              <div className="context-menu__item" onClick={handleRename}>✏️ 重命名</div>
-              <div className="context-menu__item" onClick={handleVersionEdit}>🏷️ 设置版本</div>
-              <div className="context-menu__item" onClick={handleDelete}>🗑️ 删除</div>
+              <div className="context-menu__item" onClick={handleRename}><Icon icon="edit" /> 重命名</div>
+              <div className="context-menu__item" onClick={handleVersionEdit}><Icon icon="tag" /> 设置版本</div>
+              <div className="context-menu__item" onClick={handleDelete}><Icon icon="trash" /> 删除</div>
             </div>
           )}
           <NewScriptDialog open={showNewScript} onSelect={handleCreateFromTemplate}
@@ -325,7 +345,7 @@ function Sidebar({ mode }: { mode: NavMode }) {
           {renaming && (
             <div className="confirm-overlay" onClick={() => setRenaming(null)}>
               <div className="confirm-dialog" style={{ minWidth: 300 }} onClick={e => e.stopPropagation()}>
-                <h3 style={{ fontSize: '0.875rem', fontWeight: 600, marginBottom: 10 }}>✏️ 重命名</h3>
+                <h3 style={{ fontSize: '0.875rem', fontWeight: 600, marginBottom: 10 }}><Icon icon="edit" /> 重命名</h3>
                 <input
                   autoFocus
                   className="tree-input"
@@ -344,7 +364,7 @@ function Sidebar({ mode }: { mode: NavMode }) {
           {versioning && (
             <div className="confirm-overlay" onClick={() => setVersioning(null)}>
               <div className="confirm-dialog" style={{ minWidth: 300 }} onClick={e => e.stopPropagation()}>
-                <h3 style={{ fontSize: '0.875rem', fontWeight: 600, marginBottom: 10 }}>🏷️ 设置版本号</h3>
+                <h3 style={{ fontSize: '0.875rem', fontWeight: 600, marginBottom: 10 }}><Icon icon="tag" /> 设置版本号</h3>
                 <input
                   autoFocus
                   style={{ width: '100%', boxSizing: 'border-box', padding: '6px 10px', marginBottom: 14, border: '1px solid var(--gray-300)', borderRadius: 6, fontSize: '0.875rem', fontFamily: 'var(--font-mono)' }}
@@ -439,10 +459,10 @@ const TreeNode = memo(function TreeNode({
         onContextMenu={e => onContextMenu(e, node, path)}
       >
         {isFolder && (
-          <span className="tree-node__arrow">{isExpanded ? '▼' : '▶'}</span>
+          <span className="tree-node__arrow"><Icon icon={isExpanded ? 'chevron-down' : 'chevron-right'} /></span>
         )}
         {!isFolder && <span className="tree-node__arrow" />}
-        <span className="tree-node__icon">{nodeIcon(node)}</span>
+        <span className="tree-node__icon"><Icon icon={nodeIcon(node)} /></span>
         <span className="tree-node__name">{node.name}</span>
         {node.node_type !== 'folder' && (
           <span className="tree-node__version">v{node.version}</span>

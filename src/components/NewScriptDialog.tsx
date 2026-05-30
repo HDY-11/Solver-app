@@ -3,12 +3,13 @@
 // 支持创建任意类型文件。输入文件名（含扩展名），预设模板快速填充。
 
 import { useState } from 'react';
+import { Icon } from '../utils/icons';
 
 const PRESETS = [
-  { ext: '.py', icon: '🐍', label: 'Python', template: '# 新建脚本\n\n' },
-  { ext: '.txt', icon: '📄', label: '文本', template: '' },
-  { ext: '.json', icon: '📦', label: 'JSON', template: '{\n  \n}\n' },
-  { ext: '.md', icon: '📝', label: 'Markdown', template: '# \n\n' },
+  { ext: '.py', icon: 'python', label: 'Python', template: '# 新建脚本\n\n' },
+  { ext: '.txt', icon: 'file', label: '文本', template: '' },
+  { ext: '.json', icon: 'box', label: 'JSON', template: '{\n  \n}\n' },
+  { ext: '.md', icon: 'note', label: 'Markdown', template: '# \n\n' },
 ];
 
 const DEFAULT_TEMPLATE = '';
@@ -34,7 +35,7 @@ function NewScriptDialog({ open, onSelect, onCancel }: Props) {
   return (
     <div className="confirm-overlay" onClick={onCancel}>
       <div className="confirm-dialog" style={{ minWidth: 360 }} onClick={e => e.stopPropagation()}>
-        <h3 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: 12 }}>📄 新建文件</h3>
+        <h3 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: 12 }}><Icon icon="file" /> 新建文件</h3>
 
         <input
           autoFocus
@@ -57,7 +58,7 @@ function NewScriptDialog({ open, onSelect, onCancel }: Props) {
               className={`btn btn-sm ${i === selectedPreset ? 'btn-primary' : ''}`}
               onClick={() => { setSelectedPreset(i); if (!name.trim()) setName(`untitled${p.ext}`); }}
             >
-              {p.icon} {p.label}
+              <Icon icon={p.icon} /> {p.label}
             </button>
           ))}
         </div>

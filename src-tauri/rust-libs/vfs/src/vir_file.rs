@@ -1,4 +1,4 @@
-use std::fs::File as StdFile;
+use std::fs::{File as StdFile, OpenOptions};
 use std::io::{self, Read, Write, Seek, SeekFrom};
 use std::path::Path;
 use std::sync::Arc;
@@ -10,6 +10,21 @@ use serde::Serialize;
 use crate::pool::DataFilePool;
 use crate::pool::LeaseFileExt;
 use crate::query;
+use crate::real_fs;
+
+/// B 盘等真实文件系统卷名集合
+const REAL_VOLUMES: &[&str] = &["B"];
+
+/// 判断是否为真实文件卷（B盘等）
+pub fn is_real_volume(vol: &str) -> bool {
+    REAL_VOLUMES.contains(&vol)
+}
+
+/// 文件后端：BlobStore 或真实文件系统
+enum FileBackend {
+    Blob { lease: Lease<StdFile>, pool: *const DataFilePool },
+    Real { file: StdFile },
+}
 
 #[derive(Debug, Clone, Serialize)]
 pub struct VfsNodeInfo {
@@ -22,11 +37,11 @@ pub struct VfsNodeInfo {
 }
 
 pub struct VirFile {
-    lease: Lease<StdFile>,
-    pool_ref: *const DataFilePool,
+    backend: FileBackend,
     node_id: i64,
     virt_pos: u64,
     db_pool: Arc<Pool<SqliteConnectionManager>>,
+    is_real: bool,
 }
 
 impl VirFile {
@@ -46,24 +61,29 @@ impl VirFile {
                 io::Error::new(io::ErrorKind::NotFound, format!("文件不存在: {}", path_str))
             })?;
 
-        log::debug!("[VirFile] open: 找到节点 id={}, name='{}', type={}, volume='{}'", 
+        log::debug!("[VirFile] open: 找到节点 id={}, name='{}', type={}, volume='{}'",
             meta.id, meta.name, meta.node_type, meta.volume);
 
         let volume = meta.volume.clone();
-        let pool = vfs.get_pool(&volume)
-            .inspect_log(format!("open: 获取卷池失败: volume='{}'", volume))?;
+        let is_real = is_real_volume(&volume);
 
-        log::debug!("[VirFile] open: 借出文件句柄...");
-        let lease = pool.acquire();
+        let backend = if is_real {
+            // B 盘：打开真实文件
+            let real_path = real_fs::vfs_to_real(&path_str)
+                .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "无法映射到真实路径"))?;
+            log::debug!("[VirFile] open: 真实路径='{}'", real_path.display());
+            let file = OpenOptions::new().read(true).write(true).open(&real_path)?;
+            FileBackend::Real { file }
+        } else {
+            // C 盘：使用 BlobStore
+            let pool = vfs.get_pool(&volume)
+                .inspect_log(format!("open: 获取卷池失败: volume='{}'", volume))?;
+            let lease = pool.acquire();
+            FileBackend::Blob { lease, pool: pool as *const DataFilePool }
+        };
+
         log::info!("[VirFile] open 完成: path='{}', node_id={}", path_str, meta.id);
-
-        Ok(Self {
-            lease,
-            pool_ref: pool as *const DataFilePool,
-            node_id: meta.id,
-            virt_pos: 0,
-            db_pool: Arc::new(vfs.db_pool.clone()),
-        })
+        Ok(Self { backend, node_id: meta.id, virt_pos: 0, db_pool: Arc::new(vfs.db_pool.clone()), is_real })
     }
 
     pub fn create(path: impl AsRef<Path>) -> io::Result<Self> {
@@ -99,20 +119,25 @@ impl VirFile {
 
         log::debug!("[VirFile] create: 节点已创建, node_id={}", node_id);
 
-        let pool = vfs.get_pool(&volume)
-            .inspect_log(format!("create: 获取卷池失败: volume='{}'", volume))?;
+        let is_real = is_real_volume(&volume);
 
-        log::debug!("[VirFile] create: 借出文件句柄...");
-        let lease = pool.acquire();
+        let backend = if is_real {
+            let real_path = real_fs::vfs_to_real(&path_str)
+                .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "无法映射到真实路径"))?;
+            if let Some(parent) = real_path.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            let file = OpenOptions::new().read(true).write(true).create(true).truncate(true).open(&real_path)?;
+            FileBackend::Real { file }
+        } else {
+            let pool = vfs.get_pool(&volume)
+                .inspect_log(format!("create: 获取卷池失败: volume='{}'", volume))?;
+            let lease = pool.acquire();
+            FileBackend::Blob { lease, pool: pool as *const DataFilePool }
+        };
+
         log::info!("[VirFile] create 完成: path='{}', node_id={}", path_str, node_id);
-
-        Ok(Self {
-            lease,
-            pool_ref: pool as *const DataFilePool,
-            node_id,
-            virt_pos: 0,
-            db_pool: Arc::new(vfs.db_pool.clone()),
-        })
+        Ok(Self { backend, node_id, virt_pos: 0, db_pool: Arc::new(vfs.db_pool.clone()), is_real })
     }
 
     pub(crate) fn node_id(&self) -> i64 {
@@ -204,10 +229,10 @@ impl VirFile {
     pub fn create_run_node(
         run_name: &str,
         linked_files_json: &str,
+        volume: &str,
+        run_dir: &str,
     ) -> io::Result<i64> {
         let vfs = crate::vfs_core::VirtualFileSystem::get();
-        let volume = "C";
-        let run_dir = "(vfs)/C/运行记录";
 
         let conn = vfs.db_pool.get()
             .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))
@@ -221,7 +246,6 @@ impl VirFile {
             .inspect_log("create_run_node: 查询已有节点失败")?
         {
             log::info!("[VirFile] create_run_node: 复用已有节点 name='{}', id={}", run_name, existing.id);
-            // 更新 linked_files（可能哈希变了）
             query::update_node_linked_files(&conn, existing.id, linked_files_json)
                 .inspect_log(format!("create_run_node: 更新 linked_files 失败: id={}", existing.id))?;
             return Ok(existing.id);
@@ -241,10 +265,10 @@ impl VirFile {
         source_offset: i64,
         source_size: i64,
         source_hash: &str,
+        volume: &str,
+        run_dir: &str,
     ) -> io::Result<i64> {
         let vfs = crate::vfs_core::VirtualFileSystem::get();
-        let volume = "C";
-        let run_dir = "(vfs)/C/运行记录";
 
         let conn = vfs.db_pool.get()
             .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))
@@ -349,7 +373,10 @@ impl VirFile {
     }
 
     fn pool(&self) -> &DataFilePool {
-        unsafe { &*self.pool_ref }
+        match &self.backend {
+            FileBackend::Blob { pool, .. } => unsafe { &**pool },
+            FileBackend::Real { .. } => panic!("B盘不支持 BlobStore 操作"),
+        }
     }
 }
 
@@ -357,7 +384,14 @@ impl VirFile {
 
 impl Read for VirFile {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        log::debug!("[VirFile] read: node_id={}, virt_pos={}, buf_len={}", 
+        if self.is_real {
+            return match &mut self.backend {
+                FileBackend::Real { file, .. } => file.read(buf),
+                _ => unreachable!(),
+            };
+        }
+
+        log::debug!("[VirFile] read: node_id={}, virt_pos={}, buf_len={}",
             self.node_id, self.virt_pos, buf.len());
 
         let conn = self.db_pool.get()
@@ -367,24 +401,20 @@ impl Read for VirFile {
         let (offset, size) = query::get_storage_offset(&conn, self.node_id)
             .inspect_log(format!("read: 查询偏移量失败: node_id={}", self.node_id))?;
 
-        log::debug!("[VirFile] read: offset={}, size={}, virt_pos={}", offset, size, self.virt_pos);
-
-        if self.virt_pos >= size {
-            log::debug!("[VirFile] read: 已到文件末尾");
-            return Ok(0);
-        }
+        if self.virt_pos >= size { return Ok(0); }
 
         let remaining = size - self.virt_pos;
         let to_read = buf.len().min(remaining as usize);
         let read_offset = offset + self.virt_pos;
 
-        log::debug!("[VirFile] read: read_offset={}, to_read={}", read_offset, to_read);
-
-        let n = self.lease.pread_at(read_offset, &mut buf[..to_read])
-            .inspect_log(format!("read: pread 失败: offset={}, len={}", read_offset, to_read))?;
+        let lease = match &self.backend {
+            FileBackend::Blob { lease, .. } => lease,
+            _ => unreachable!(),
+        };
+        let n = lease.pread_at(read_offset, &mut buf[..to_read])
+            .inspect_log(format!("read: pread 失败"))?;
 
         self.virt_pos += n as u64;
-        log::debug!("[VirFile] read 完成: 读取 {} 字节, 新 virt_pos={}", n, self.virt_pos);
         Ok(n)
     }
 }
@@ -393,7 +423,31 @@ impl Read for VirFile {
 
 impl Write for VirFile {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        // 1. 先计算新内容的哈希
+        // B 盘：直接写入真实文件
+        if self.is_real {
+            let n = match &mut self.backend {
+                FileBackend::Real { file, .. } => {
+                    let n = file.write(buf)?;
+                    // 从缓冲区计算哈希（避免重新打开文件导致 Windows 共享冲突）
+                    let hash: String = {
+                        use sha2::{Sha256, Digest};
+                        let mut hasher = Sha256::new();
+                        hasher.update(&buf[..n]);
+                        hex::encode(hasher.finalize())
+                    };
+                    // 更新 DB 元数据（size 用文件实际大小）
+                    if let Ok(conn) = self.db_pool.get() {
+                        let size = file.metadata().map(|m| m.len() as i64).unwrap_or(n as i64);
+                        let _ = query::update_node_real_meta(&conn, self.node_id, size, &hash);
+                    }
+                    n
+                }
+                _ => unreachable!(),
+            };
+            return Ok(n);
+        }
+
+        // C 盘：原有 BlobStore 逻辑
         let new_hash: String = {
             use sha2::{Sha256, Digest};
             let mut hasher = Sha256::new();
@@ -405,23 +459,14 @@ impl Write for VirFile {
             .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))
             .inspect_log("write: 获取数据库连接失败")?;
 
-        // 2. 哈希去重：查询失败时 fall through 到正常写入，不阻塞
         let should_skip = match query::get_content_hash(&conn, self.node_id) {
             Ok(Some(current_hash)) => {
                 if current_hash == new_hash {
-                    log::debug!("[VirFile] write: 内容未变 (hash={}), 跳过写入 node_id={}",
-                        &new_hash[..8], self.node_id);
+                    log::debug!("[VirFile] write: 内容未变, 跳过写入");
                     true
-                } else {
-                    false
-                }
+                } else { false }
             }
-            Ok(None) => false,
-            Err(e) => {
-                log::warn!("[VirFile] write: 查询哈希失败 (node_id={}), 降级为强制写入: {}",
-                    self.node_id, e);
-                false
-            }
+            _ => false,
         };
 
         if should_skip {
@@ -429,7 +474,6 @@ impl Write for VirFile {
             return Ok(buf.len());
         }
 
-        // 3. 存档当前版本到 node_versions（仅当有旧内容时）
         if let Ok(Some(old_meta)) = query::find_node_by_id(&conn, self.node_id) {
             if let (Some(old_hash), Some(old_off), Some(old_sz)) =
                 (old_meta.content_hash, old_meta.storage_offset, old_meta.size)
@@ -440,24 +484,22 @@ impl Write for VirFile {
         }
 
         let pool = self.pool();
-
         let new_offset = pool.alloc(buf.len())
-            .inspect_log(format!("write: 分配 BlobStore 空间失败: len={}", buf.len()))?;
+            .inspect_log(format!("write: 分配 BlobStore 空间失败"))?;
 
-        self.lease.pwrite_at(new_offset, buf)
-            .inspect_log(format!("write: pwrite 失败: offset={}, len={}", new_offset, buf.len()))?;
+        let lease = match &self.backend {
+            FileBackend::Blob { lease, .. } => lease,
+            _ => unreachable!(),
+        };
+        lease.pwrite_at(new_offset, buf)
+            .inspect_log(format!("write: pwrite 失败"))?;
 
-        // 4. 新内容存档
         query::archive_version(&conn, self.node_id, &new_hash, new_offset as i64, buf.len() as i64)
-            .inspect_log(format!("write: 存档新版本失败: node_id={}", self.node_id))?;
-
-        // 5. 更新 nodes 表的当前存储信息
+            .inspect_log(format!("write: 存档新版本失败"))?;
         query::update_node_storage(&conn, self.node_id, new_offset, buf.len() as u64, &new_hash)
-            .inspect_log(format!("write: 更新元信息失败: node_id={}", self.node_id))?;
+            .inspect_log(format!("write: 更新元信息失败"))?;
 
         self.virt_pos += buf.len() as u64;
-        log::debug!("[VirFile] write: 写入 {} 字节, hash={}, node_id={}",
-            buf.len(), &new_hash[..8], self.node_id);
         Ok(buf.len())
     }
 
@@ -471,21 +513,21 @@ impl Write for VirFile {
 
 impl Seek for VirFile {
     fn seek(&mut self, pos: SeekFrom) -> io::Result<u64> {
-        log::debug!("[VirFile] seek: node_id={}, 当前 virt_pos={}, pos={:?}", 
-            self.node_id, self.virt_pos, pos);
+        if self.is_real {
+            return match &mut self.backend {
+                FileBackend::Real { file, .. } => file.seek(pos),
+                _ => unreachable!(),
+            };
+        }
 
         let new_pos = match pos {
             SeekFrom::Start(n) => n,
             SeekFrom::End(offset) => {
                 let conn = self.db_pool.get()
-                    .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))
-                    .inspect_log("seek: 获取数据库连接失败")?;
-                let (_, size) = query::get_storage_offset(&conn, self.node_id)
-                    .inspect_log(format!("seek: 查询文件大小失败: node_id={}", self.node_id))?;
-
+                    .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+                let (_, size) = query::get_storage_offset(&conn, self.node_id)?;
                 let end = size as i64 + offset;
                 if end < 0 {
-                    log::error!("[VirFile] seek: SeekFrom::End({}) 导致负位置: size={}", offset, size);
                     return Err(io::Error::new(io::ErrorKind::InvalidInput, "seek 到负位置"));
                 }
                 end as u64
@@ -493,15 +535,11 @@ impl Seek for VirFile {
             SeekFrom::Current(offset) => {
                 let current = self.virt_pos as i64 + offset;
                 if current < 0 {
-                    log::error!("[VirFile] seek: SeekFrom::Current({}) 导致负位置: virt_pos={}", 
-                        offset, self.virt_pos);
                     return Err(io::Error::new(io::ErrorKind::InvalidInput, "seek 到负位置"));
                 }
                 current as u64
             }
         };
-
-        log::debug!("[VirFile] seek: 新位置={}", new_pos);
         self.virt_pos = new_pos;
         Ok(new_pos)
     }
@@ -509,16 +547,13 @@ impl Seek for VirFile {
 
 impl Drop for VirFile {
     fn drop(&mut self) {
-        log::debug!("[VirFile] drop: node_id={}, 归还文件句柄", self.node_id);
-
+        log::debug!("[VirFile] drop: node_id={}", self.node_id);
         if let Ok(conn) = self.db_pool.get() {
             if let Err(e) = query::update_node_modified_at(&conn, self.node_id) {
-                log::warn!("[VirFile] drop: 更新 modified_at 失败: node_id={}, error={}", 
-                    self.node_id, e);
+                log::warn!("[VirFile] drop: 更新 modified_at 失败: {}", e);
             }
         }
     }
 }
 
 unsafe impl Send for VirFile {}
-// VirFile 不 Sync — Lease 不 Sync

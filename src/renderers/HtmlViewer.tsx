@@ -95,7 +95,7 @@ registerRenderer({
   name: 'html',
   extensions: ['.html', '.htm'],
   component: HtmlViewer,
-  icon: '🌐',
+  icon: 'globe',
   label: '浏览器',
   toolbar: () => <HtmlToolbar />,
 });

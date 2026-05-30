@@ -7,6 +7,7 @@ import { registerRenderer } from '../registry/registry';
 import { readFile } from '../api/vfs';
 import { onRunOutput, onRunComplete } from '../api/events';
 import { Loading } from '../components/Loading';
+import { Icon } from '../utils/icons';
 import type { RendererProps } from '../registry/types';
 import type { RunRecordContent, RunOutputPayload } from '../types';
 
@@ -94,10 +95,10 @@ function RunResult({ nodeId }: RendererProps) {
       <div style={{ padding: '10px 16px', fontSize: 12, color: 'var(--gray-500)',
         borderBottom: '1px solid var(--gray-300)', background: 'var(--gray-100)', flexShrink: 0,
         display: 'flex', alignItems: 'center', gap: 12 }}>
-        <span>📊 运行结果</span>
-        {status === 'loading' && <span style={{ color: '#f0ad4e' }}>⏳ 运行中...</span>}
-        {status === 'streaming' && <span style={{ color: '#5bc0de' }}>📡 实时输出中...</span>}
-        {status === 'complete' && <span style={{ color: '#5cb85c' }}>✅ 完成</span>}
+        <span><Icon icon="chart" /> 运行结果</span>
+        {status === 'loading' && <span style={{ color: '#f0ad4e' }}><Icon icon="spinner" /> 运行中...</span>}
+        {status === 'streaming' && <span style={{ color: '#5bc0de' }}><Icon icon="signal" /> 实时输出中...</span>}
+        {status === 'complete' && <span style={{ color: '#5cb85c' }}><Icon icon="success" /> 完成</span>}
       </div>
 
       {/* 实时输出流 */}
@@ -137,7 +138,7 @@ registerRenderer({
   name: 'run',
   extensions: ['.run'],
   component: RunResult,
-  icon: '📊',
+  icon: 'chart',
   label: '运行结果',
 });
 

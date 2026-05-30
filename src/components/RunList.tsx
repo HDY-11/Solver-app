@@ -7,13 +7,18 @@ import { useNavigate } from 'react-router-dom';
 import { error as logError } from '@tauri-apps/plugin-log';
 import { listDir, deleteNode, renameFile } from '../api/vfs';
 import { useToast } from '../hooks/useToast';
+import { Icon } from '../utils/icons';
 import { fmtSize } from '../types';
 import type { VfsNode } from '../types';
+
+interface RunNode extends VfsNode {
+  _volume: string;
+}
 
 function RunList() {
   const navigate = useNavigate();
   const { addToast } = useToast();
-  const [runs, setRuns] = useState<VfsNode[]>([]);
+  const [runs, setRuns] = useState<RunNode[]>([]);
   const [loading, setLoading] = useState(true);
   const [contextMenu, setContextMenu] = useState<{ node: VfsNode; x: number; y: number } | null>(null);
   const [renaming, setRenaming] = useState<{ node: VfsNode } | null>(null);
@@ -21,9 +26,17 @@ function RunList() {
 
   const loadRuns = useCallback(async () => {
     try {
-      const nodes = await listDir('(vfs)/C/运行记录');
+      const [cRuns, bRuns] = await Promise.all([
+        listDir('(vfs)/C/运行记录').catch(() => [] as VfsNode[]),
+        listDir('(vfs)/B/运行记录').catch(() => [] as VfsNode[]),
+      ]);
+      // 标记来源卷
+      const all = [
+        ...cRuns.map(n => ({ ...n, _volume: 'C' })),
+        ...bRuns.map(n => ({ ...n, _volume: 'B' })),
+      ];
       setRuns(
-        nodes
+        all
           .filter((n) => n.node_type === 'file' && n.name.endsWith('.run'))
           .sort((a, b) => b.modified_at.localeCompare(a.modified_at))
       );
@@ -41,7 +54,8 @@ function RunList() {
   const handleDelete = async () => {
     if (!contextMenu) return;
     try {
-      const path = `(vfs)/C/运行记录/${contextMenu.node.name}`;
+      const vol = (contextMenu.node as RunNode)._volume;
+      const path = `(vfs)/${vol}/运行记录/${contextMenu.node.name}`;
       await deleteNode(path);
       addToast('success', `已删除 ${contextMenu.node.name}`);
       setContextMenu(null);
@@ -61,7 +75,8 @@ function RunList() {
       setRenaming(null); return;
     }
     try {
-      const path = `(vfs)/C/运行记录/${renaming.node.name}`;
+      const vol = (renaming.node as RunNode)._volume;
+      const path = `(vfs)/${vol}/运行记录/${renaming.node.name}`;
       await renameFile(path, renameValue.trim());
       addToast('success', `已重命名`);
       setRenaming(null);
@@ -74,7 +89,7 @@ function RunList() {
       <div className="sidebar-toolbar">
         <span className="sidebar-toolbar__title">运行结果</span>
         <div className="sidebar-toolbar__actions">
-          <button className="icon-btn" title="刷新" onClick={loadRuns}>🔄</button>
+          <button className="icon-btn" title="刷新" onClick={loadRuns}><Icon icon="rotate" /></button>
         </div>
       </div>
 
@@ -88,12 +103,15 @@ function RunList() {
             <div
               key={node.id}
               className="run-item"
-              onClick={() => navigate(`/app/run/${encodeURIComponent(`(vfs)/C/运行记录/${node.name}`)}`)}
+              onClick={() => navigate(`/app/run/${encodeURIComponent(`(vfs)/${node._volume}/运行记录/${node.name}`)}`)}
               onContextMenu={(e) => handleContext(e, node)}
             >
-              <span className="run-item__icon">📊</span>
+              <span className="run-item__icon"><Icon icon="chart" /></span>
               <div className="run-item__info">
-                <span className="run-item__name">{node.name}</span>
+                <span className="run-item__name">
+                  {node._volume === 'B' && <span style={{ color: 'var(--blue-500)', fontSize: '0.65rem', marginRight: 4 }}>[B]</span>}
+                  {node.name}
+                </span>
                 <span className="run-item__meta">
                   v{node.version} · {node.modified_at.replace('T', ' ').slice(0, 19)}
                   {node.size != null && ` · ${fmtSize(node.size)}`}
@@ -105,14 +123,14 @@ function RunList() {
       )}
       {contextMenu && (
         <div className="context-menu" style={{ left: contextMenu.x, top: contextMenu.y }}>
-          <div className="context-menu__item" onClick={startRename}>✏️ 重命名</div>
-          <div className="context-menu__item" onClick={handleDelete}>🗑️ 删除</div>
+          <div className="context-menu__item" onClick={startRename}><Icon icon="edit" /> 重命名</div>
+          <div className="context-menu__item" onClick={handleDelete}><Icon icon="trash" /> 删除</div>
         </div>
       )}
       {renaming && (
         <div className="confirm-overlay" onClick={() => setRenaming(null)}>
           <div className="confirm-dialog" style={{ minWidth: 300 }} onClick={e => e.stopPropagation()}>
-            <h3 style={{ fontSize: '0.875rem', fontWeight: 600, marginBottom: 10 }}>✏️ 重命名</h3>
+            <h3 style={{ fontSize: '0.875rem', fontWeight: 600, marginBottom: 10 }}><Icon icon="edit" /> 重命名</h3>
             <input autoFocus style={{ width: '100%', boxSizing: 'border-box', padding: '6px 10px', marginBottom: 14, border: '1px solid var(--gray-300)', borderRadius: 6, fontSize: '0.875rem', fontFamily: 'var(--font-mono)' }}
               value={renameValue} onChange={e => setRenameValue(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter') commitRename(); if (e.key === 'Escape') setRenaming(null); }} />

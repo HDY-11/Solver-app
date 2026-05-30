@@ -6,8 +6,13 @@ pub static GLOBAL_APPHANDLE: OnceCell<AppHandle> = OnceCell::new();
 
 // ── 事件注册表（预留，后续按需扩展） ────────────────
 pub mod event_registry {
-    // 当前仅使用动态事件（emit!(dyn ...)），静态注册表备空
-    const VALID_EVENTS: &[&str] = &[];
+    /// 所有有效事件名（编译期检查用）
+    pub const VALID_EVENTS: &[&str] = &[
+        "script-result",
+        "run-output",
+        "run-complete",
+        "merge-request",
+    ];
 
     /// 检查事件名是否在注册表中
     pub const fn is_valid(event: &str) -> bool {
@@ -146,7 +151,7 @@ macro_rules! listen {
 
     // ── 内部实现 ────────────────────────────────────────
     // 静态：带注册表检查
-    (@single $event:literal : $handler:expr) => {
+    (@single $event:literal : $handler:expr) => {{
         const _: () = {
             if !$crate::event_registry::is_valid($event) {
                 panic!("Unknown event type in listen!(). Add it to the event registry.");
@@ -154,38 +159,41 @@ macro_rules! listen {
         };
         match $crate::GLOBAL_APPHANDLE.get() {
             Some(handle) => {
-                let _ = tauri::Listener::listen(handle, $event, $handler);
+                Some(tauri::Listener::listen(handle, $event, $handler))
             }
             None => {
                 #[cfg(debug_assertions)]
                 eprintln!("[listen] Event system not initialized, cannot register listener for: {}", $event);
+                None
             }
         }
-    };
+    }};
     // 动态字面量：无编译期检查
-    (@single dyn $event:literal : $handler:expr) => {
+    (@single dyn $event:literal : $handler:expr) => {{
         match $crate::GLOBAL_APPHANDLE.get() {
             Some(handle) => {
-                let _ = tauri::Listener::listen(handle, $event, $handler);
+                Some(tauri::Listener::listen(handle, $event, $handler))
             }
             None => {
                 #[cfg(debug_assertions)]
                 eprintln!("[listen] Event system not initialized, cannot register listener for: {}", $event);
+                None
             }
         }
-    };
+    }};
     // 动态表达式：无编译期检查
-    (@single dyn ($event:expr) : $handler:expr) => {
+    (@single dyn ($event:expr) : $handler:expr) => {{
         match $crate::GLOBAL_APPHANDLE.get() {
             Some(handle) => {
-                let _ = tauri::Listener::listen(handle, $event, $handler);
+                Some(tauri::Listener::listen(handle, &$event, $handler))
             }
             None => {
                 #[cfg(debug_assertions)]
                 eprintln!("[listen] Event system not initialized, cannot register dynamic listener");
+                None
             }
         }
-    };
+    }};
 }
 
 #[macro_export]

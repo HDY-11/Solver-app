@@ -4,6 +4,7 @@
 // 自动从 ToastProvider 读取 toast 列表。
 
 import { useToastList, useToast } from '../hooks/useToast';
+import { Icon } from '../utils/icons';
 import type { ToastType } from '../hooks/useToast';
 
 // =========================================================================
@@ -11,10 +12,10 @@ import type { ToastType } from '../hooks/useToast';
 // =========================================================================
 
 const TYPE_ICON: Record<ToastType, string> = {
-  success: '✅',
-  error: '❌',
-  warning: '⚠️',
-  info: 'ℹ️',
+  success: 'success',
+  error: 'error',
+  warning: 'warning',
+  info: 'info',
 };
 
 const TYPE_CLASS: Record<ToastType, string> = {
@@ -42,14 +43,14 @@ function ToastContainer() {
           className={`toast ${TYPE_CLASS[toast.type]}`}
           onClick={() => removeToast(toast.id)}
         >
-          <span className="toast__icon">{TYPE_ICON[toast.type]}</span>
+          <span className="toast__icon"><Icon icon={TYPE_ICON[toast.type]} /></span>
           <span className="toast__message">{toast.message}</span>
           <button
             className="toast__close"
             onClick={(e) => { e.stopPropagation(); removeToast(toast.id); }}
             aria-label="关闭通知"
           >
-            ✕
+            <Icon icon="xmark" />
           </button>
         </div>
       ))}
