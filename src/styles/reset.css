@@ -1,0 +1,98 @@
+/* ============================================
+   CSS 重置 - 消除浏览器默认样式差异
+   确保跨浏览器的一致性
+   ============================================ */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  line-height: 1.5;
+  -webkit-text-size-adjust: 100%;
+  -moz-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+body {
+  font-family: var(--font-ui);
+  background: var(--gray-50);
+  color: var(--gray-800);
+  min-height: 100vh;
+  /* 优化字体渲染 */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* 标题默认样式 */
+h1, h2, h3, h4, h5, h6 {
+  font-weight: 600;
+  line-height: 1.25;
+  color: var(--gray-900);
+}
+
+h1 { font-size: 2rem; }
+h2 { font-size: 1.5rem; }
+h3 { font-size: 1.25rem; }
+h4 { font-size: 1.125rem; }
+h5, h6 { font-size: 1rem; }
+
+/* 链接默认样式 */
+a {
+  color: var(--primary);
+  text-decoration: none;
+  transition: color var(--transition-fast);
+}
+
+a:hover {
+  color: var(--primary-dark);
+  text-decoration: underline;
+}
+
+/* 按钮继承字体 */
+button, input, select, textarea {
+  font-family: inherit;
+  font-size: 100%;
+  line-height: 1.15;
+  margin: 0;
+}
+
+/* 移除默认按钮样式 */
+button {
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+/* 禁用状态的通用样式 */
+[disabled] {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* 移除列表样式 */
+ul, ol {
+  list-style: none;
+}
+
+/* 图片基础样式 */
+img, svg {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+/* 表格基础样式 */
+table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+/* 代码块基础样式 */
+pre, code {
+  font-family: var(--font-mono);
+}

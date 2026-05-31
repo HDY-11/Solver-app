@@ -1,0 +1,19 @@
+[package]
+name = "vfs"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+r2d2_sqlite = {workspace = true}
+chrono = { workspace = true}
+serde = { workspace = true}
+serde_json = { workspace = true}
+sha2 = { workspace = true }
+hex = { workspace = true}
+r2d2 ={ workspace = true}
+utils = { version = "0.1.0", path = "../utils" }
+env-system = { version = "0.1.0", path = "../env-system" }
+error-system = { version = "0.1.0", path = "../error-system" }
+log ={ workspace = true}
+rusqlite = { workspace = true }
+dashmap.workspace = true

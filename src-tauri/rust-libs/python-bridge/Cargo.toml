@@ -1,0 +1,20 @@
+[package]
+name = "python-bridge"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "python_bridge"
+crate-type = ["lib", "cdylib"]
+
+[dependencies]
+pyo3 ={ workspace = true}
+tokio = { workspace = true }
+utils = { version = "0.1.0", path = "../utils" }
+error-system = { version = "0.1.0", path = "../error-system" }
+anyhow ={ workspace = true}
+env-system = { version = "0.1.0", path = "../env-system" }
+event-system = { version = "0.1.0", path = "../event-system" }
+chrono = { workspace = true }
+serde = { workspace = true }
+tauri = { workspace = true }

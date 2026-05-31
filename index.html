@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="zh">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>求解器</title>
+    <style>
+      #splash {
+        position: fixed; inset: 0; z-index: 99999;
+        display: flex; flex-direction: column;
+        align-items: center; justify-content: center;
+        background: #1a1a2e;
+        font-family: system-ui, -apple-system, sans-serif;
+        transition: opacity 0.5s ease;
+      }
+      #splash.hide { opacity: 0; pointer-events: none; }
+      #splash .logo {
+        font-size: 2.5rem; font-weight: 700; color: #fff;
+        letter-spacing: 0.05em; margin-bottom: 8px;
+      }
+      #splash .sub {
+        font-size: 0.8rem; color: #8b8ba7; margin-bottom: 32px;
+      }
+      #splash .track {
+        width: 260px; height: 3px; background: rgba(255,255,255,0.1);
+        border-radius: 2px; overflow: hidden;
+      }
+      #splash .bar {
+        height: 100%; width: 0%;
+        background: linear-gradient(90deg, #4facfe, #00f2fe);
+        border-radius: 2px; transition: width 0.3s ease;
+      }
+      #splash .status {
+        margin-top: 14px; font-size: 0.7rem; color: #6b6b8a;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- 加载动画：React 挂载前显示，收到 app-ready 后隐藏 -->
+    <div id="splash">
+      <div class="logo">Solver</div>
+      <div class="sub">数据分析 &amp; 可视化工作台</div>
+      <div class="track"><div class="bar" id="splash-bar"></div></div>
+      <div class="status" id="splash-status">正在初始化...</div>
+    </div>
+    <div id="root"></div>
+    <script>
+      // ── 真实进度条（轮询 Rust 后端）──
+      // 到 100% 后停止轮询但保持显示，等 React 挂载后调用 __closeSplash()
+      var bar = document.getElementById('splash-bar');
+      var status = document.getElementById('splash-status');
+      var splash = document.getElementById('splash');
+      var ready = false;
+
+      window.__closeSplash = function() {
+        if (!splash) return;
+        bar.style.width = '100%';
+        status.textContent = '就绪';
+        setTimeout(function() {
+          splash.classList.add('hide');
+          setTimeout(function() { if (splash) splash.remove(); }, 500);
+        }, 200);
+      };
+
+      function poll() {
+        if (ready) return;
+        var invoke = window.__TAURI_INTERNALS__ && window.__TAURI_INTERNALS__.invoke;
+        if (!invoke) { setTimeout(poll, 50); return; }
+        invoke('get_loading_status').then(function(res) {
+          // 平滑动画：缓慢追上目标百分比（每次最多+3%）
+          var target = res.pct;
+          var cur = parseInt(bar.style.width) || 0;
+          var next = Math.min(target, cur + 3);
+          bar.style.width = Math.max(next, cur) + '%';
+          if (res.msg) status.textContent = res.msg;
+          if (target >= 100 && cur >= 99) { ready = true; return; }
+          setTimeout(poll, 150);
+        }).catch(function() { setTimeout(poll, 500); });
+      }
+      poll();
+    </script>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

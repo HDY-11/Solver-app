@@ -1,0 +1,15 @@
+[package]
+name = "simple_motion"
+version = "0.1.0"
+description = "简单运动学模拟库"
+authors = ["you"]
+edition = "2021"
+
+[lib]
+name = "simple_motion"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+nalgebra = {workspace = true}
+pyo3 ={ workspace = true}
+numpy = { workspace = true }

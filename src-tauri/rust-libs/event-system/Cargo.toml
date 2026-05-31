@@ -1,0 +1,17 @@
+[package]
+name = "event-system"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "event_system"
+crate-type = ["lib", "cdylib"]
+
+[dependencies]
+tauri = { workspace = true }
+serde_json ={ workspace = true}
+serde ={ workspace = true}
+log ={ workspace = true}
+error-system = { path = "../error-system" }
+crossbeam-channel = { workspace = true }
+once_cell ={ workspace = true}
