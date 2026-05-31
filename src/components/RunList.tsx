@@ -4,7 +4,6 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { error as logError } from '@tauri-apps/plugin-log';
 import { listDir, deleteNode, renameFile } from '../api/vfs';
 import { useToast } from '../hooks/useToast';
 import { Icon } from '../utils/icons';

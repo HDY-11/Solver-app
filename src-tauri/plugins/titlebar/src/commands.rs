@@ -22,10 +22,10 @@ pub fn update_regions(hwnd_raw: String, regions: Vec<TitlebarRegion>) {
 
 /// 启动全局拖拽追踪（标签拖拽开始）
 #[tauri::command]
-pub fn start_drag_track(tab_path: String, tab_label: String, device_pixel_ratio: f64) {
-    eprintln!("[titlebar] start_drag_track: path={}, label={}, dpr={}", tab_path, tab_label, device_pixel_ratio);
+pub fn start_drag_track(tab_path: String, tab_label: String, device_pixel_ratio: f64, start_screen_x: i32, start_screen_y: i32) {
+    eprintln!("[titlebar] start_drag_track: path={}, label={}, dpr={}, start=({},{})", tab_path, tab_label, device_pixel_ratio, start_screen_x, start_screen_y);
     #[cfg(target_os = "windows")]
-    crate::windows_impl::start_drag(tab_path, tab_label, device_pixel_ratio);
+    crate::windows_impl::start_drag(tab_path, tab_label, device_pixel_ratio, start_screen_x, start_screen_y);
 }
 
 /// 停止全局拖拽追踪

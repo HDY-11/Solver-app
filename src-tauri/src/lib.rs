@@ -12,8 +12,8 @@ use anyhow::Error;
 
 /// 启动全局拖拽追踪（委托给 titlebar 插件）
 #[command]
-fn start_drag_track(tab_path: String, tab_label: String, device_pixel_ratio: f64) {
-    tauri_plugin_titlebar::commands::start_drag_track(tab_path, tab_label, device_pixel_ratio);
+fn start_drag_track(tab_path: String, tab_label: String, device_pixel_ratio: f64, start_screen_x: i32, start_screen_y: i32) {
+    tauri_plugin_titlebar::commands::start_drag_track(tab_path, tab_label, device_pixel_ratio, start_screen_x, start_screen_y);
 }
 
 /// 停止全局拖拽追踪（委托给 titlebar 插件）

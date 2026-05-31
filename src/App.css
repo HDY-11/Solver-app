@@ -202,6 +202,7 @@ html, body, #root {
   grid-area: main;
   background: var(--gray-50);
   overflow: visible;
+  height: 100%;
 }
 
 .app-footer {

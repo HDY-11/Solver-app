@@ -114,12 +114,22 @@ static HOOK_THREAD: Mutex<Option<(ThreadId, JoinHandle<()>)>> = Mutex::new(None)
 /// 前端传入的设备像素比（devicePixelRatio），用于 CSS→物理像素坐标转换
 static DPI_SCALE: LazyLock<Mutex<f64>> = LazyLock::new(|| Mutex::new(1.0));
 
-pub fn start_drag(_path: String, _label: String, device_pixel_ratio: f64) {
+/// 拖拽起始光标位置，用于判定是否确实发生了拖拽移动
+static DRAG_START_POS: LazyLock<Mutex<Option<POINT>>> = LazyLock::new(|| Mutex::new(None));
+
+pub fn start_drag(_path: String, _label: String, device_pixel_ratio: f64, start_x: i32, start_y: i32) {
     eprintln!("[titlebar::hook] start_drag 调用");
 
     // 记录前端传入的 DPI 缩放比
     if device_pixel_ratio > 0.0 {
         *DPI_SCALE.lock().unwrap() = device_pixel_ratio;
+    }
+
+    // 记录前端传入的拖拽起始光标位置（真实 mousedown 坐标）
+    {
+        let pt = POINT { x: start_x, y: start_y };
+        *DRAG_START_POS.lock().unwrap() = Some(pt);
+        eprintln!("[titlebar::hook] 起始位置: ({}, {})", pt.x, pt.y);
     }
 
     // 延迟初始化主窗口 HWND（setup 阶段可能早于窗口创建）
@@ -150,6 +160,7 @@ pub fn start_drag(_path: String, _label: String, device_pixel_ratio: f64) {
 
 pub fn stop_drag() {
     eprintln!("[titlebar::hook] stop_drag 调用");
+    *DRAG_START_POS.lock().unwrap() = None;
     let mut guard = HOOK_THREAD.lock().unwrap();
     if let Some((tid, _handle)) = guard.take() {
         // 向钩子线程发送 WM_QUIT（而非主线程）
@@ -190,42 +201,58 @@ unsafe extern "system" fn hook_proc(
         let mut pt = POINT::default();
         let _ = GetCursorPos(&mut pt);
 
-        // 获取主窗口 HWND（从 setup 阶段存储）
-        let main_hwnd_raw = MAIN_WINDOW_HWND
-            .lock().ok().and_then(|g| *g).unwrap_or(0);
+        // 校验拖拽真实性：光标必须确实移动过（非纯点击）
+        let is_genuine_drag = DRAG_START_POS.lock().unwrap()
+            .map(|start| {
+                let dx = pt.x - start.x;
+                let dy = pt.y - start.y;
+                (dx * dx + dy * dy) > 0 // 移动了至少 1px
+            })
+            .unwrap_or(false);
 
-        // 坐标比对：主窗口 Nav 区域 ±12px（CSS Grid row3: Y=72~112）
-        let is_over_target = if main_hwnd_raw != 0 {
-            let main_hwnd = HWND(main_hwnd_raw as *mut _);
-            let mut rect = RECT::default();
-            let _ = GetWindowRect(main_hwnd, &mut rect);
-            let scale = *DPI_SCALE.lock().unwrap();
-            let nav_top = rect.top + (60.0 * scale) as i32;
-            let nav_bottom = rect.top + (124.0 * scale) as i32;
-            let hit = pt.x >= rect.left && pt.x <= rect.right
-                   && pt.y >= nav_top && pt.y <= nav_bottom;
-            eprintln!(
-                "[titlebar::hook] dpi_scale={:.2}  nav_zone=({},{},{},{})  cursor=({},{})  hit={}",
-                scale, rect.left, nav_top, rect.right, nav_bottom, pt.x, pt.y, hit
-            );
-            hit
+        if !is_genuine_drag {
+            eprintln!("[titlebar::hook] 光标未移动，忽略（非拖拽）");
         } else {
-            eprintln!("[titlebar::hook] 主窗口 HWND 未记录，无法判定");
-            false
-        };
+            // 获取主窗口 HWND（从 setup 阶段存储）
+            let main_hwnd_raw = MAIN_WINDOW_HWND
+                .lock().ok().and_then(|g| *g).unwrap_or(0);
 
-        if is_over_target {
-            eprintln!("[titlebar::hook] 光标在 Nav 区域上，发射 drag-release");
-            if let Some(handle) = event_system::GLOBAL_APPHANDLE.get() {
-                let payload = serde_json::json!({
-                    "screenX": pt.x,
-                    "screenY": pt.y,
-                });
-                let _ = tauri::Emitter::emit(handle, "drag-release", payload);
+            // 坐标比对：主窗口 Nav 区域 ±12px（CSS Grid row3: Y=72~112）
+            let is_over_target = if main_hwnd_raw != 0 {
+                let main_hwnd = HWND(main_hwnd_raw as *mut _);
+                let mut rect = RECT::default();
+                let _ = GetWindowRect(main_hwnd, &mut rect);
+                let scale = *DPI_SCALE.lock().unwrap();
+                let nav_top = rect.top + (60.0 * scale) as i32;
+                let nav_bottom = rect.top + (124.0 * scale) as i32;
+                let hit = pt.x >= rect.left && pt.x <= rect.right
+                       && pt.y >= nav_top && pt.y <= nav_bottom;
+                eprintln!(
+                    "[titlebar::hook] dpi_scale={:.2}  nav_zone=({},{},{},{})  cursor=({},{})  hit={}",
+                    scale, rect.left, nav_top, rect.right, nav_bottom, pt.x, pt.y, hit
+                );
+                hit
+            } else {
+                eprintln!("[titlebar::hook] 主窗口 HWND 未记录，无法判定");
+                false
+            };
+
+            if is_over_target {
+                eprintln!("[titlebar::hook] 光标在 Nav 区域上，发射 drag-release");
+                if let Some(handle) = event_system::GLOBAL_APPHANDLE.get() {
+                    let payload = serde_json::json!({
+                        "screenX": pt.x,
+                        "screenY": pt.y,
+                    });
+                    let _ = tauri::Emitter::emit(handle, "drag-release", payload);
+                }
+            } else {
+                eprintln!("[titlebar::hook] 光标不在 Nav 区域内，忽略");
             }
-        } else {
-            eprintln!("[titlebar::hook] 光标不在 Nav 区域内，忽略");
         }
+
+        // 清除起始位置
+        *DRAG_START_POS.lock().unwrap() = None;
 
         // 停止钩子消息泵
         let _ = PostThreadMessageW(

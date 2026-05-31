@@ -185,7 +185,7 @@ function DragMergeHandler() {
       if (dx * dx + dy * dy > THRESHOLD * THRESHOLD) {
         hookStarted = true;
         logInfo(`[merge] 拖拽超过阈值 → start_drag_track`);
-        invoke('start_drag_track', { tabPath: '', tabLabel: '', devicePixelRatio: window.devicePixelRatio }).catch(e => logError('[merge] start_drag_track 失败:', e));
+        invoke('start_drag_track', { tabPath: '', tabLabel: '', devicePixelRatio: window.devicePixelRatio, startScreenX: startX, startScreenY: startY }).catch(e => logError('[merge] start_drag_track 失败:', e));
       }
     };
 
@@ -242,7 +242,7 @@ function DetachedApp() {
             <DetachedTitlebar />
             <Toolbar />
             <Nav detached />
-            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'visible', minHeight: 0 }}>
               <Main />
             </div>
           </div>
