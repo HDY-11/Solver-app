@@ -1,4 +1,4 @@
-use tauri::{AppHandle};
+use tauri::{AppHandle, Emitter};
 use error_system::{ResultLogExt, AppError};
 use once_cell::sync::OnceCell;
 

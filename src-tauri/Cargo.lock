@@ -2163,6 +2163,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "init-system"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "ipnet"
 version = "2.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4298,6 +4305,7 @@ dependencies = [
  "error-system",
  "event-system",
  "hex",
+ "init-system",
  "log",
  "log-system",
  "nalgebra",

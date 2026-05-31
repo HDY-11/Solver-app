@@ -127,9 +127,53 @@ html, body, #root {
   border-bottom: 1px solid var(--gray-300);
   display: flex;
   align-items: center;
-  padding: 0 12px;
+  padding: 0 10px;
   z-index: 5;
-  gap: var(--space-2);
+  gap: 2px;
+}
+
+/* Monaco 所有浮窗/提示层置于 Nav 之上 */
+.monaco-editor .find-widget,
+.monaco-editor .suggest-widget,
+.monaco-editor .hover-widget,
+.monaco-editor .parameter-hints-widget,
+.monaco-editor .overlayWidgets {
+  z-index: 50 !important;
+}
+
+/* 工具栏按钮 — 扁平紧凑，与 Header/Nav 风格统一 */
+.toolbar-btn {
+  height: 28px;
+  padding: 0 10px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--gray-600);
+  font-size: 0.8125rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.12s, color 0.12s;
+}
+
+.toolbar-btn:hover {
+  background: var(--gray-200);
+  color: var(--gray-900);
+}
+
+.toolbar-btn:active {
+  background: var(--gray-300);
+}
+
+.toolbar-btn--primary {
+  color: var(--primary, #4a90d9);
+}
+
+.toolbar-btn--primary:hover {
+  background: var(--primary-bg, rgba(74, 144, 217, 0.1));
+  color: var(--primary-dark, #3a7bc8);
 }
 
 .app-sidebar {
@@ -157,7 +201,7 @@ html, body, #root {
 .app-main {
   grid-area: main;
   background: var(--gray-50);
-  overflow: auto;
+  overflow: visible;
 }
 
 .app-footer {
@@ -229,7 +273,6 @@ html, body, #root {
   border-radius: 4px;
   margin: 0 4px;
   font-size: 0.8125rem;
-  user-select: none;
   transition: background var(--transition-fast);
 }
 
@@ -245,6 +288,12 @@ html, body, #root {
 .tree-node--selected:hover {
   background: var(--primary-bg);
   color: var(--primary-dark);
+}
+
+.tree-node--drop-target {
+  outline: 2px dashed var(--primary, #4a90d9);
+  outline-offset: -2px;
+  background: rgba(74, 144, 217, 0.08);
 }
 
 .tree-node__arrow {
@@ -264,6 +313,7 @@ html, body, #root {
   text-overflow: ellipsis;
   white-space: nowrap;
   flex: 1;
+  user-select: none;
 }
 
 .tree-node__size {
@@ -271,6 +321,7 @@ html, body, #root {
   color: var(--gray-400);
   margin-left: 8px;
   flex-shrink: 0;
+  user-select: none;
 }
 
 .tree-node__version {
@@ -281,6 +332,7 @@ html, body, #root {
   border-radius: 3px;
   margin-left: 6px;
   flex-shrink: 0;
+  user-select: none;
 }
 
 .tree-node__empty {
@@ -718,7 +770,7 @@ html, body, #root {
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 10000;
+  z-index: 99999;
   animation: fade-in 0.15s ease-out;
 }
 
@@ -980,4 +1032,54 @@ html, body, #root {
 .run-item__meta {
   font-size: 0.625rem;
   color: var(--gray-400);
+}
+
+/* ===== 合并拖拽动画 ===== */
+
+/* 拖拽中：蓝色虚线边框 + 半透明底色 */
+.merge-drag-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9990;
+  pointer-events: none;
+  border: 3px dashed var(--primary, #4a90d9);
+  background: rgba(74, 144, 217, 0.06);
+  animation: merge-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes merge-pulse {
+  0%, 100% { border-color: var(--primary, #4a90d9); }
+  50%      { border-color: var(--primary-light, #6db3f2); }
+}
+
+/* 合并关闭：暗色遮罩 + 窗口缩小帧 */
+.merge-close-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  animation: merge-dim-bg 0.35s ease-out forwards;
+}
+
+.merge-close-frame {
+  width: 96vw;
+  height: 96vh;
+  background: var(--gray-50, #f8f9fa);
+  border-radius: 12px;
+  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.15);
+  animation: merge-shrink 0.35s ease-in forwards;
+}
+
+@keyframes merge-dim-bg {
+  from { background: transparent; }
+  to   { background: rgba(0, 0, 0, 0.55); }
+}
+
+@keyframes merge-shrink {
+  0%   { transform: scale(1);   opacity: 1; }
+  60%  { transform: scale(0.6); opacity: 0.7; }
+  100% { transform: scale(0.2); opacity: 0; }
 }

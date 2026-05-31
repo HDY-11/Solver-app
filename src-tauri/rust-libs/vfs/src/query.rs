@@ -180,6 +180,12 @@ pub(crate) fn soft_delete_node(conn: &rusqlite::Connection, id: i64) -> io::Resu
     Ok(())
 }
 
+/// 硬删除（A/B 盘使用）
+pub(crate) fn hard_delete_node(conn: &rusqlite::Connection, id: i64) -> io::Result<()> {
+    exec(conn, "DELETE FROM nodes WHERE id=?", rusqlite::params![&id])?;
+    Ok(())
+}
+
 /// 确保卷根节点存在（用于 real_fs 同步）
 pub(crate) fn ensure_root_node(conn: &rusqlite::Connection, root_name: &str, volume: &str) -> io::Result<i64> {
     if let Some(node) = find_node_by_name_and_parent(conn, root_name, None, volume)? {

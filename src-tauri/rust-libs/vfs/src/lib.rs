@@ -6,6 +6,7 @@ pub mod vfs_core;
 
 pub use vir_file::VirFile;
 pub use vir_file::VfsNodeInfo;
+pub use vir_file::is_real_volume;
 pub use query::NodeVersionMeta;
 pub use vfs_core::VirtualFileSystem;
 

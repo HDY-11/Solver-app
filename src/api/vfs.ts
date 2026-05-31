@@ -147,12 +147,22 @@ export async function readVersion(filePath: string, contentHash: string): Promis
 // 版本号管理
 // =========================================================================
 
-/** 同步 B 盘（扫描 vault 目录 → 更新 DB） */
+/** 同步 A/B 盘（扫描真实目录 → 更新 DB） */
 export async function syncVault(): Promise<string> {
   try {
     return await invoke<string>('sync_vault');
   } catch (err) {
     logError(`[vfs] syncVault 失败: ${err}`);
+    throw err;
+  }
+}
+
+/** 导入文件到 A 盘（打开文件对话框 → 复制 → 同步 DB） */
+export async function importToA(): Promise<string> {
+  try {
+    return await invoke<string>('import_to_a');
+  } catch (err) {
+    logError(`[vfs] importToA 失败: ${err}`);
     throw err;
   }
 }

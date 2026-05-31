@@ -16,11 +16,15 @@ export function registerEditorCommands(): () => void {
     await activeEditor.active?.run();
   });
 
+  const unreg3 = commandService.registerCommand(Commands.EDITOR_FIND, async () => {
+    activeEditor.active?.find?.();
+  });
+
   // 快捷键映射（全局注册一次，不需要 per-instance 的 URL 检查）
-  const unreg3 = commandService.registerKeybindings([
+  const unreg4 = commandService.registerKeybindings([
     { key: 'Ctrl+s', command: Commands.EDITOR_SAVE },
     { key: 'Ctrl+Enter', command: Commands.EDITOR_RUN },
   ]);
 
-  return () => { unreg1(); unreg2(); unreg3(); };
+  return () => { unreg1(); unreg2(); unreg3(); unreg4(); };
 }

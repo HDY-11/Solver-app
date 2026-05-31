@@ -12,7 +12,7 @@ import {
   faHouse, faPlay, faPlus, faThumbtack, faDownload,
   faCircleCheck, faCircleXmark, faTriangleExclamation, faCircleInfo,
   faCircle, faCheck, faSpinner, faRotateLeft,
-  faSun, faMoon, faSatelliteDish,
+  faSun, faMoon, faSatelliteDish, faEye, faCode,
   type IconDefinition,
 } from '@fortawesome/free-solid-svg-icons';
 import { faPython } from '@fortawesome/free-brands-svg-icons';
@@ -65,6 +65,8 @@ const iconMap: Record<string, IconDefinition> = {
   sun:            faSun,
   moon:           faMoon,
   signal:         faSatelliteDish,
+  eye:            faEye,
+  code:           faCode,
 };
 
 /** 根据文本名称获取 FA 图标定义（未知回退为 faFile） */

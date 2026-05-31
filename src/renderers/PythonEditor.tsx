@@ -38,6 +38,7 @@ function PythonEditor({ nodeId }: RendererProps) {
   const [running, setRunning] = useState(false);
   const codeRef = useRef(code);
   const pathRef = useRef(vfsPath);
+  const editorRef = useRef<any>(null);
   codeRef.current = code;
   pathRef.current = vfsPath;
 
@@ -81,6 +82,13 @@ function PythonEditor({ nodeId }: RendererProps) {
     }
   }, [addToast]);
 
+  // 自动保存：停止输入 1.5 秒后自动保存
+  useEffect(() => {
+    if (saved || !vfsPath) return;
+    const timer = setTimeout(() => { handleSave(); }, 1500);
+    return () => clearTimeout(timer);
+  }, [code, saved, vfsPath, handleSave]);
+
   // 运行 → 保存 → 跳转到运行结果页面
   const handleRun = useCallback(async () => {
     const p = pathRef.current;
@@ -99,15 +107,19 @@ function PythonEditor({ nodeId }: RendererProps) {
   }, [handleSave, addToast, navigate]);
 
   // 注册为活跃编辑器（命令系统通过 activeEditor 找到当前应操作的实例）
-  // 仅当 URL pathname 对应当前实例时才设为活跃
   useEffect(() => {
-    const expectedPath = `/app/py/${encodeURIComponent(vfsPath ?? '')}`;
-    if (pathname !== expectedPath) return;
+    if (!vfsPath) return;
+    // pathname 已被浏览器解码，vfsPath 也是解码后的 → 直接比较
+    const expectedPath = `/app/py/${vfsPath}`;
+    if (decodeURIComponent(pathname) !== expectedPath) return;
 
     const unreg = activeEditor.setActive({
       vfsPath,
       save: handleSave,
       run: handleRun,
+      find: () => {
+        editorRef.current?.getAction('actions.find')?.run();
+      },
     });
     return unreg;
   }, [pathname, vfsPath, handleSave, handleRun]);
@@ -136,6 +148,7 @@ function PythonEditor({ nodeId }: RendererProps) {
           defaultLanguage="python"
           value={code}
           onChange={v => { setCode(v ?? ''); setSaved(false); }}
+          onMount={editor => { editorRef.current = editor; }}
           theme={settings.theme === 'light' ? 'vs' : 'vs-dark'}
           options={{
             minimap: { enabled: false },
@@ -174,14 +187,19 @@ registerRenderer({
 function PythonToolbar() {
   const handleSave = () => commandService.executeCommand(Commands.EDITOR_SAVE);
   const handleRun = () => commandService.executeCommand(Commands.EDITOR_RUN);
+  const handleFind = () => commandService.executeCommand(Commands.EDITOR_FIND);
 
   return (
     <>
-      <button className="btn btn-primary btn-sm" onClick={handleRun}>
+      <button className="toolbar-btn toolbar-btn--primary" onClick={handleRun}>
         <Icon icon="play" /> 运行
       </button>
-      <button className="btn btn-sm" onClick={handleSave}>
+      <button className="toolbar-btn" onClick={handleSave}>
         <Icon icon="save" /> 保存
+      </button>
+      <span style={{ width: 1, height: 20, background: 'var(--gray-300)', margin: '0 4px' }} />
+      <button className="toolbar-btn" onClick={handleFind}>
+        <Icon icon="search" /> 查找
       </button>
     </>
   );

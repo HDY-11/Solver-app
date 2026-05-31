@@ -6,6 +6,8 @@
 interface ActiveEditorOps {
   save: () => Promise<void>;
   run: () => Promise<void>;
+  /** 触发编辑器内查找 */
+  find?: () => void;
   /** 编辑器的 VFS 路径，用于判断是否当前活跃 */
   vfsPath: string | null;
 }

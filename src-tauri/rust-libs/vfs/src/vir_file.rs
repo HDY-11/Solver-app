@@ -12,12 +12,18 @@ use crate::pool::LeaseFileExt;
 use crate::query;
 use crate::real_fs;
 
-/// B 盘等真实文件系统卷名集合
-const REAL_VOLUMES: &[&str] = &["B"];
+/// B/A 盘等真实文件系统卷名集合
+const REAL_VOLUMES: &[&str] = &["A", "B"];
+/// A 盘只读
+const READONLY_VOLUMES: &[&str] = &["A"];
 
-/// 判断是否为真实文件卷（B盘等）
+/// 判断是否为真实文件卷（A/B盘等）
 pub fn is_real_volume(vol: &str) -> bool {
     REAL_VOLUMES.contains(&vol)
+}
+
+pub fn is_readonly_volume(vol: &str) -> bool {
+    READONLY_VOLUMES.contains(&vol)
 }
 
 /// 文件后端：BlobStore 或真实文件系统
@@ -178,6 +184,18 @@ impl VirFile {
         query::soft_delete_node(&conn, self.node_id)
             .inspect_log(format!("delete: 软删除失败: id={}", self.node_id))?;
         log::info!("[VirFile] delete 完成: node_id={}", self.node_id);
+        Ok(())
+    }
+
+    /// 硬删除（A/B 盘：直接移除 DB 记录）
+    pub fn hard_delete(self) -> io::Result<()> {
+        log::info!("[VirFile] hard_delete: node_id={}", self.node_id);
+        let conn = self.db_pool.get()
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))
+            .inspect_log("hard_delete: 获取数据库连接失败")?;
+        query::hard_delete_node(&conn, self.node_id)
+            .inspect_log(format!("hard_delete: 硬删除失败: id={}", self.node_id))?;
+        log::info!("[VirFile] hard_delete 完成: node_id={}", self.node_id);
         Ok(())
     }
 

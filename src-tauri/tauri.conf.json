@@ -15,7 +15,8 @@
         "title": "solver",
         "width": 800,
         "height": 600,
-        "decorations": false
+        "decorations": false,
+        "dragDropEnabled": false
       }
     ],
     "security": {
@@ -26,7 +27,8 @@
     "active": true,
     "resources": {
     "../scripts/": "scripts/",
-
+    "../.venv/Lib/": "Lib/",
+    "../.venv/Scripts/DLLs/": "DLLs/",
     "../dlls/": "./"
   },
     "targets": ["nsis"],

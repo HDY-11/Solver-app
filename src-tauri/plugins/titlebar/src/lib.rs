@@ -9,9 +9,9 @@ use tauri::{
     Manager,
 };
 
-mod commands;
+pub mod commands;
 #[cfg(target_os = "windows")]
-mod windows_impl;
+pub mod windows_impl;
 
 pub fn init() -> TauriPlugin<tauri::Wry> {
     Builder::new("titlebar")

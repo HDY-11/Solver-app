@@ -1,13 +1,32 @@
 use std::cell::RefCell;
+use std::collections::HashMap;
+use std::sync::{LazyLock, Mutex};
 use log_system::init_logging;
 use tauri::{Manager, command};
 use event_system::*;
 use error_system::{ResultLogExt, OptionLogExt, AppError};
 use serde::Serialize;
 use env_system as env;
+use init_system;
 use anyhow::Error;
 
+/// 启动全局拖拽追踪（委托给 titlebar 插件）
+#[command]
+fn start_drag_track(tab_path: String, tab_label: String, device_pixel_ratio: f64) {
+    tauri_plugin_titlebar::commands::start_drag_track(tab_path, tab_label, device_pixel_ratio);
+}
+
+/// 停止全局拖拽追踪（委托给 titlebar 插件）
+#[command]
+fn stop_drag_track() {
+    tauri_plugin_titlebar::commands::stop_drag_track();
+}
+
 mod config;
+
+/// 分离窗口路由状态表（label → route）
+static DETACH_ROUTES: LazyLock<Mutex<HashMap<String, String>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 #[derive(Clone, Serialize)]
 struct RunScriptResponse {
@@ -223,22 +242,30 @@ fn vfs_exists(path: String) -> Result<bool, AppError> {
 
 #[command]
 fn vfs_delete(path: String) -> Result<(), AppError> {
+    let volume = env::vfs_volume(std::path::Path::new(&path)).unwrap_or_else(|| "C".to_string());
+    let is_real = vfs::is_real_volume(&volume);
+
     // 如果是 .py 文件，级联删除对应卷中的 .run 文件
     if path.ends_with(".py") {
-        let volume = env::vfs_volume(std::path::Path::new(&path)).unwrap_or_else(|| "C".to_string());
         if let Some(name) = std::path::Path::new(&path).file_name().and_then(|n| n.to_str()) {
             let run_path = format!("(vfs)/{}/运行记录/{}.run", volume, name);
             if vfs::VirFile::exists(&run_path).unwrap_or(false) {
                 if let Ok(f) = vfs::VirFile::open(&run_path) {
-                    let _ = f.delete();
+                    let _ = if is_real { f.hard_delete() } else { f.delete() };
                 }
             }
         }
     }
-    vfs::VirFile::open(&path)
-        .and_then(|f| f.delete())
+    let f = vfs::VirFile::open(&path)
         .map_err(|e| AppError::Io(e))
-        .inspect_log("删除失败")
+        .inspect_log("删除失败")?;
+    if is_real {
+        f.hard_delete()
+    } else {
+        f.delete()
+    }
+    .map_err(|e| AppError::Io(e))
+    .inspect_log("删除失败")
 }
 
 #[command]
@@ -277,15 +304,12 @@ fn vfs_set_version(path: String, new_version: String) -> Result<(), AppError> {
 #[command]
 async fn detach_window(app: tauri::AppHandle, url_path: String, title: String) -> Result<String, AppError> {
     let label = format!("detached-{}", uuid::Uuid::new_v4().to_string().replace('-', "_"));
-    // 使用 initialization_script 注入路由，比 URL 查询参数更可靠
-    // 通过 JSON 序列化确保所有 JS 特殊字符被正确转义
-    let init_script = format!("window.__DETACH_ROUTE__ = {};", serde_json::to_string(&url_path).unwrap());
+    DETACH_ROUTES.lock().unwrap().insert(label.clone(), url_path.clone());
     tauri::WebviewWindowBuilder::new(
         &app, &label, tauri::WebviewUrl::App("index.html".into())
     )
     .title(&title)
     .decorations(false)
-    .initialization_script(&init_script)
     .inner_size(800.0, 600.0)
     .build()
     .map_err(|e| AppError::Other(anyhow::Error::from(e)))
@@ -294,11 +318,28 @@ async fn detach_window(app: tauri::AppHandle, url_path: String, title: String) -
     Ok(label)
 }
 
+/// 获取当前分离窗口的目标路由（窗口查询并消费）
+#[command]
+fn get_detach_route(window: tauri::Window) -> Result<String, AppError> {
+    let label = window.label().to_string();
+    DETACH_ROUTES.lock().unwrap()
+        .remove(&label)
+        .ok_or_else(|| AppError::Other(anyhow::Error::msg("无分离路由")))
+}
+
 /// 分离窗口请求合并回主窗口（转发事件）
 #[command]
-fn emit_merge_request(path: String, label: String, icon: String) {
-    use serde_json::json;
-    emit!("merge-request": json!({ "path": path, "label": label, "icon": icon }));
+fn emit_merge_request(path: String, label: String, icon: String) -> Result<(), AppError> {
+    log::info!("[merge] 收到合并请求: path={}", path);
+    let payload = serde_json::json!({ "path": &path, "label": &label, "icon": &icon });
+    if let Some(handle) = event_system::GLOBAL_APPHANDLE.get() {
+        tauri::Emitter::emit(handle, "merge-request", payload)
+            .map_err(|e| AppError::Other(anyhow::Error::from(e)))?;
+    } else {
+        return Err(AppError::Other(anyhow::Error::msg("事件系统未初始化")));
+    }
+    log::info!("[merge] 事件已发射");
+    Ok(())
 }
 
 #[command]
@@ -359,19 +400,127 @@ fn vfs_read_version(path: String, content_hash: String) -> Result<String, AppErr
         .inspect_log("解码历史版本 UTF-8 失败")
 }
 
-/// 同步 B 盘（扫描 vault 目录 → 更新 DB）
+/// 同步 A/B 盘（扫描真实目录 → 更新 DB）
 #[command]
 fn sync_vault() -> Result<String, AppError> {
     let pool = &vfs::get_vfs().db_pool;
-    vfs::real_fs::sync_real_volume(pool, "B")
-        .map(|_| "同步完成".to_string())
-        .map_err(|e| AppError::Io(e))
+    for vol in &["A", "B"] {
+        vfs::real_fs::sync_real_volume(pool, vol)
+            .map_err(|e| AppError::Io(e))?;
+    }
+    Ok("同步完成".to_string())
 }
 
-/// 获取 B 盘真实文件夹路径
+/// 获取指定卷的状态信息
+#[derive(Clone, Serialize)]
+struct VolumeInfo {
+    volume: String,
+    node_count: u64,
+    total_size: u64,
+    is_real: bool,
+}
+
+#[command]
+fn get_volume_info(volume: String) -> Result<VolumeInfo, AppError> {
+    let vfs = vfs::get_vfs();
+    let conn = vfs.db_pool.get()
+        .map_err(|e| AppError::Other(anyhow::Error::from(e)))?;
+    
+    let is_real = vfs::is_real_volume(&volume);
+    let node_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM nodes WHERE volume=? AND deleted=0",
+            rusqlite::params![&volume],
+            |row| row.get(0),
+        )
+        .unwrap_or(0);
+    
+    let total_size = if is_real {
+        // 真实卷：仅计算直接文件大小（不递归子目录）
+        let dir = match volume.as_str() {
+            "A" => env_system::imports_dir(),
+            "B" => env_system::vault_dir(),
+            _ => return Err(AppError::Other(anyhow::Error::msg("未知卷"))),
+        };
+        flat_dir_size(&dir).unwrap_or(0)
+    } else {
+        // C 盘：从 DB 汇总
+        let size: i64 = conn
+            .query_row(
+                "SELECT COALESCE(SUM(size), 0) FROM nodes WHERE volume=? AND deleted=0 AND size IS NOT NULL",
+                rusqlite::params![&volume],
+                |row| row.get(0),
+            )
+            .unwrap_or(0);
+        size as u64
+    };
+    
+    Ok(VolumeInfo { volume, node_count: node_count as u64, total_size, is_real })
+}
+
+fn flat_dir_size(path: &std::path::Path) -> std::io::Result<u64> {
+    let mut total = 0u64;
+    if path.is_dir() {
+        for entry in std::fs::read_dir(path)? {
+            let entry = entry?;
+            if entry.file_type()?.is_file() {
+                total += entry.metadata()?.len();
+            }
+        }
+    }
+    Ok(total)
+}
+
+/// 应用启动完成（前端可监听此事件刷新状态）
+#[command]
+fn app_ready(_app: tauri::AppHandle) {
+    emit!("app-ready": serde_json::json!({}));
+    log::info!("[app] 应用启动完成事件已发送");
+}
+
+/// 前端挂载完成 → 进度 100%
+#[command]
+fn frontend_ready() {
+    init_system::set_ready();
+}
+
+#[command]
+fn get_loading_status() -> init_system::LoadingStatus {
+    init_system::get_loading_status()
+}
 #[command]
 fn get_vault_path() -> Result<String, AppError> {
     Ok(env_system::vault_dir().to_string_lossy().to_string())
+}
+
+/// 导入文件到 A 盘（只读）
+#[command]
+async fn import_to_a(app: tauri::AppHandle) -> Result<String, AppError> {
+    use tauri_plugin_dialog::DialogExt;
+    let path = app
+        .dialog()
+        .file()
+        .blocking_pick_file();
+    let Some(file_path) = path else {
+        return Err(AppError::Other(anyhow::Error::msg("未选择文件")));
+    };
+    let src = file_path.to_string();
+    let name = std::path::Path::new(&src)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("imported_file");
+    let dest = env_system::imports_dir().join(name);
+    std::fs::create_dir_all(env_system::imports_dir())
+        .map_err(|e| AppError::Io(e))?;
+    std::fs::copy(&src, &dest)
+        .map_err(|e| AppError::Io(e))?;
+    // 同步到 DB
+    let pool = &vfs::get_vfs().db_pool;
+    vfs::real_fs::sync_real_volume(pool, "A")
+        .map_err(|e| AppError::Io(e))?;
+    let vfs_path = format!("(vfs)/A/{}", name);
+    log::info!("[import_to_a] 导入完成: {} → {}", src, vfs_path);
+    Ok(vfs_path)
 }
 
 #[derive(Clone, Serialize)]
@@ -382,9 +531,22 @@ struct VfsInfo {
     c_node_count: u64,
 }
 
+/// 发送加载进度事件（在事件系统初始化前使用 eprintln，之后用 emit）
+fn emit_loading(pct: u32, msg: &str) {
+    init_system::set_progress(pct, msg);
+    // 同时通过事件系统发送（供 React 端监听 app-ready）
+    if let Some(handle) = event_system::GLOBAL_APPHANDLE.get() {
+        let _ = tauri::Emitter::emit(handle, "loading-progress", serde_json::json!({
+            "pct": pct,
+            "msg": msg,
+        }));
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     eprintln!("[MAIN] 初始化日志系统...");
+    emit_loading(5, "初始化日志...");
     let (log_ctrl, log_handle) =
         init_logging(env::log_dir(), env::log_dir(), 4096).expect("初始化日志失败");
 
@@ -403,22 +565,25 @@ pub fn run() {
         eprintln!("[MAIN] 创建资料目录失败: {}", e);
     });
     eprintln!("[MAIN] 数据目录: {}", env::app_data_dir().display());
+    emit_loading(10, "正在初始化 VFS...");
     vfs::init_vfs(
         &env::database_path(),
-        &[("C", 64 * 1024 * 1024), ("B", 64 * 1024 * 1024)],
+        &[("C", 64 * 1024 * 1024), ("B", 64 * 1024 * 1024), ("A", 64 * 1024 * 1024)],
     )
     .expect("VFS 初始化失败");
+    emit_loading(25, "VFS 就绪");
     eprintln!("[MAIN] VFS 初始化完成");
 
-    // 同步 B 盘（真实文件 → DB）
-    if let Err(e) = vfs::real_fs::sync_real_volume(
-        &vfs::get_vfs().db_pool,
-        "B",
-    ) {
-        eprintln!("[MAIN] B盘同步失败: {}", e);
-    } else {
-        eprintln!("[MAIN] B盘同步完成");
+    // 同步 A/B 盘（真实文件 → DB）
+    for (i, vol) in ["A", "B"].iter().enumerate() {
+        emit_loading(30 + i as u32 * 20, &format!("同步 {} 盘...", vol));
+        if let Err(e) = vfs::real_fs::sync_real_volume(&vfs::get_vfs().db_pool, vol) {
+            eprintln!("[MAIN] {}盘同步失败: {}", vol, e);
+        } else {
+            eprintln!("[MAIN] {}盘同步完成", vol);
+        }
     }
+    emit_loading(70, "磁盘就绪");
 
     tauri::Builder::default()
         .manage(log_handle.clone())
@@ -445,6 +610,7 @@ pub fn run() {
             vfs_set_version,
             detach_window,
             emit_merge_request,
+            get_detach_route,
             vfs_info,
             vfs_list_versions,
             vfs_read_version,
@@ -453,9 +619,18 @@ pub fn run() {
             config::reset_settings,
             sync_vault,
             get_vault_path,
+            import_to_a,
+            get_volume_info,
+            app_ready,
+            get_loading_status,
+            frontend_ready,
+            start_drag_track,
+            stop_drag_track,
         ])
         .setup(move |app| {
+            emit_loading(80, "启动引擎...");
             init_event_system(app.handle().clone()).unwrap_log();
+            emit_loading(90, "加载界面...");
 
             let window = app.get_webview_window("main").expect("获取窗口句柄失败");
             let log_ctrl = RefCell::new(l_c.take().expect("LogCtrl 已经被使用过了"));
@@ -466,6 +641,14 @@ pub fn run() {
                     log_ctrl.borrow_mut().shutdown();
                     std::process::exit(0);
                 }
+            });
+
+            // 通知前端应用就绪
+            let handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                let _ = tauri::Emitter::emit(&handle, "app-ready", serde_json::json!({}));
+                log::info!("[app] 启动完成事件已发送");
             });
             Ok(())
         })

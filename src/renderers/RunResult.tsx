@@ -4,17 +4,22 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { registerRenderer } from '../registry/registry';
-import { readFile } from '../api/vfs';
+import { readFile, writeFile } from '../api/vfs';
 import { onRunOutput, onRunComplete } from '../api/events';
+import { runScript } from '../api/script';
 import { Loading } from '../components/Loading';
 import { Icon } from '../utils/icons';
 import type { RendererProps } from '../registry/types';
 import type { RunRecordContent, RunOutputPayload } from '../types';
 
-/** 从 VFS 路径提取文件名（用于事件匹配） */
+// 模块级状态，供 Toolbar 读取（Toolbar 渲染在 RunResult 之外）
+let currentRunState: { path: string; record: RunRecordContent | null } = { path: '', record: null };
+
+/** 取最后三段路径用于事件匹配（C/运行记录/2.py.run），区分卷防串台 */
 function runNameFromPath(vfsPath: string): string {
   try {
-    return decodeURIComponent(vfsPath.split('/').pop() ?? '');
+    const parts = decodeURIComponent(vfsPath).split('/');
+    return parts.slice(-3).join('/') || parts.pop() || '';
   } catch {
     return vfsPath.split('/').pop() ?? '';
   }
@@ -37,6 +42,7 @@ function RunResult({ nodeId }: RendererProps) {
       setStreamOutputs(r.outputs || []);
       setStatus('complete');
     } catch {
+      setRecord({ stdout: '', stderr: '无法加载运行结果' });
       setStatus('complete');
     }
   }, []);
@@ -57,10 +63,11 @@ function RunResult({ nodeId }: RendererProps) {
         setRecord(r);
         setStreamOutputs(r.outputs || []);
         loaded = true;
-        setStatus(r.stdout || (r.outputs && r.outputs.length > 0) ? 'complete' : 'loading');
+        setStatus('complete');
       })
       .catch(() => {
-        setStatus('loading');
+        setRecord({ stdout: '', stderr: '无法读取运行记录' });
+        setStatus('complete');
       });
 
     // 监听实时输出 —— 仅处理当前 run_path 的事件
@@ -75,8 +82,13 @@ function RunResult({ nodeId }: RendererProps) {
     // 监听运行完成 —— 仅处理当前 run_path 的事件
     const unlistenComplete = onRunComplete((payload) => {
       const payloadRunName = runNameFromPath(payload.run_path);
-      if (payloadRunName !== runName) return; // ← 过滤串台
-      if (currentPathRef.current) loadFile(currentPathRef.current);
+      if (payloadRunName !== runName) return;
+      if (payload.error) {
+        setRecord({ stdout: '', stderr: payload.error });
+        setStatus('complete');
+      } else if (currentPathRef.current) {
+        loadFile(currentPathRef.current);
+      }
     });
 
     return () => {
@@ -88,6 +100,9 @@ function RunResult({ nodeId }: RendererProps) {
   if (!nodeId) {
     return <div style={{ padding: 24, color: 'var(--gray-500)' }}>选择运行记录查看</div>;
   }
+
+  // 暴露数据给 Toolbar（模块级变量，Toolbar 在组件外渲染时也能读到）
+  currentRunState = { path: vfsPath ?? '', record };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', fontFamily: 'var(--font-mono)' }}>
@@ -140,6 +155,57 @@ registerRenderer({
   component: RunResult,
   icon: 'chart',
   label: '运行结果',
+  toolbar: () => <RunToolbar />,
 });
+
+function RunToolbar() {
+  const handleRerun = async () => {
+    const vfsPath = currentRunState.path;
+    if (!vfsPath) return;
+    try {
+      const decoded = decodeURIComponent(vfsPath);
+      const parts = decoded.split('/');
+      const runDirIdx = parts.indexOf('运行记录');
+      if (runDirIdx > 0) {
+        const volume = parts[runDirIdx - 1];
+        const runName = parts[parts.length - 1];
+        const scriptName = runName.replace(/\.run$/, '');
+        const scriptPath = `(vfs)/${volume}/${scriptName}`;
+        const { run_path } = await runScript(scriptPath);
+        window.dispatchEvent(new CustomEvent('run-result:rerun', { detail: { run_path } }));
+      }
+    } catch (err) {
+      console.error('重新运行失败:', err);
+    }
+  };
+
+  const handleSaveOutput = async () => {
+    const vfsPath = currentRunState.path;
+    const record = currentRunState.record;
+    if (!vfsPath || !record) return;
+    try {
+      const decoded = decodeURIComponent(vfsPath);
+      const outPath = decoded.replace(/\.run$/, '.txt');
+      const text = [
+        record.stdout || '',
+        record.stderr ? '\n--- stderr ---\n' + record.stderr : '',
+      ].join('');
+      await writeFile(outPath, text);
+    } catch (err) {
+      console.error('保存输出失败:', err);
+    }
+  };
+
+  return (
+    <>
+      <button className="toolbar-btn toolbar-btn--primary" onClick={handleRerun}>
+        <Icon icon="play" /> 重新运行
+      </button>
+      <button className="toolbar-btn" onClick={handleSaveOutput}>
+        <Icon icon="save" /> 保存输出
+      </button>
+    </>
+  );
+}
 
 export default RunResult;

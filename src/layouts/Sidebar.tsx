@@ -7,7 +7,7 @@ import { useState, useEffect, useCallback, useRef, memo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { error as logError } from '@tauri-apps/plugin-log';
 import { getRendererByExtension } from '../registry/registry';
-import { listDir, createDir, writeFile, deleteNode, renameFile, setVersion, syncVault } from '../api/vfs';
+import { listDir, createDir, writeFile, deleteNode, renameFile, setVersion, syncVault, importToA, readFile } from '../api/vfs';
 import { useToast } from '../hooks/useToast';
 import { Icon } from '../utils/icons';
 import ConfirmDialog from '../components/ConfirmDialog';
@@ -44,7 +44,8 @@ function Sidebar({ mode }: { mode: NavMode }) {
   const { addToast } = useToast();
   const [rootNodes, setRootNodes] = useState<VfsNode[]>([]);
   const [bRootNodes, setBRootNodes] = useState<VfsNode[]>([]);
-  const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set(['(vfs)/C']));
+  const [aRootNodes, setARootNodes] = useState<VfsNode[]>([]);
+  const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set(['(vfs)/C', '(vfs)/B', '(vfs)/A']));
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<{
     node: VfsNode; path: string; x: number; y: number;
@@ -67,15 +68,39 @@ function Sidebar({ mode }: { mode: NavMode }) {
   const [newName, setNewName] = useState('');
   const [refreshKey, setRefreshKey] = useState(0);
   const [searchQuery, setSearchQuery] = useState('');
+  const [pendingMove, setPendingMove] = useState<{
+    srcPath: string; destFolder: string; name: string;
+  } | null>(null);
+
+  // 搜索时自动展开根节点，使子节点可见
+  const effectiveExpanded = new Set(expandedPaths);
+  if (searchQuery.trim()) {
+    effectiveExpanded.add('(vfs)/C');
+    effectiveExpanded.add('(vfs)/B');
+    effectiveExpanded.add('(vfs)/A');
+  }
 
   // 过滤后的根节点列表（按模式 + 搜索词）
-  const filteredRootNodes = (searchQuery.trim()
-    ? rootNodes.filter(n => n.name.toLowerCase().includes(searchQuery.toLowerCase()))
-    : rootNodes).filter(n => {
-      if (mode === 'files') return n.node_type !== 'run';
-      if (mode === 'runs') return n.node_type === 'run';
-      return true;
-    });
+  const modeFilter = (nodes: VfsNode[]) => nodes.filter(n => {
+    if (mode === 'files') return n.node_type !== 'run';
+    if (mode === 'runs') return n.node_type === 'run';
+    return true;
+  });
+
+  const filteredRootNodes = searchQuery.trim()
+    ? modeFilter(rootNodes).filter(n =>
+        n.name.toLowerCase().includes(searchQuery.toLowerCase()))
+    : modeFilter(rootNodes);
+
+  const filteredBRootNodes = searchQuery.trim()
+    ? modeFilter(bRootNodes).filter(n =>
+        n.name.toLowerCase().includes(searchQuery.toLowerCase()))
+    : modeFilter(bRootNodes);
+
+  const filteredARootNodes = searchQuery.trim()
+    ? modeFilter(aRootNodes).filter(n =>
+        n.name.toLowerCase().includes(searchQuery.toLowerCase()))
+    : modeFilter(aRootNodes);
 
   // ref 保持最新值
   const creatingRef = useRef(creating);
@@ -85,12 +110,16 @@ function Sidebar({ mode }: { mode: NavMode }) {
 
   const refreshRoot = useCallback(async () => {
     try {
-      const [cNodes, bNodes] = await Promise.all([
+      await syncVault();
+      const [cNodes, bNodes, aNodes] = await Promise.all([
         listDir('(vfs)/C'),
         listDir('(vfs)/B'),
+        listDir('(vfs)/A'),
       ]);
       setRootNodes(cNodes);
       setBRootNodes(bNodes);
+      setARootNodes(aNodes);
+      setRefreshKey(k => k + 1);
     } catch (err) {
       logError(`Sidebar: 加载目录失败: ${err}`);
     }
@@ -98,6 +127,17 @@ function Sidebar({ mode }: { mode: NavMode }) {
 
   useEffect(() => {
     refreshRoot();
+  }, [refreshRoot]);
+
+  // 监听 app-ready → 刷新 A/B 盘状态
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    import('@tauri-apps/api/event').then(({ listen }) => {
+      listen('app-ready', () => {
+        refreshRoot();
+      }).then(fn => { unlisten = fn; });
+    });
+    return () => { unlisten?.(); };
   }, [refreshRoot]);
 
   // 提交创建
@@ -259,12 +299,114 @@ function Sidebar({ mode }: { mode: NavMode }) {
     setConfirmDelete(null);
   }, [confirmDelete, refreshRoot, addToast]);
 
+  // ── 文件跨盘操作 ──
+  const handleExportCtoB = useCallback(async (srcPath: string) => {
+    try {
+      const name = srcPath.split('/').pop() || 'file';
+      const dest = `(vfs)/B/${name}`;
+      const content = await readFile(srcPath);
+      await writeFile(dest, content);
+      addToast('success', `已导出到 B 盘: ${name}`);
+      refreshRoot();
+    } catch (err) { addToast('error', `导出失败: ${err}`); }
+    setContextMenu(null);
+  }, [refreshRoot, addToast]);
+
+  const handleSaveBtoA = useCallback(async (srcPath: string) => {
+    try {
+      const name = srcPath.split('/').pop() || 'file';
+      const dest = `(vfs)/A/${name}`;
+      const content = await readFile(srcPath);
+      await writeFile(dest, content);
+      addToast('success', `已另存到 A 盘: ${name}`);
+      refreshRoot();
+    } catch (err) { addToast('error', `另存失败: ${err}`); }
+    setContextMenu(null);
+  }, [refreshRoot, addToast]);
+
+  const handleAddAtoB = useCallback(async (srcPath: string) => {
+    try {
+      const name = srcPath.split('/').pop() || 'file';
+      const dest = `(vfs)/B/${name}`;
+      const content = await readFile(srcPath);
+      await writeFile(dest, content);
+      addToast('success', `已添加到 B 盘: ${name}`);
+      refreshRoot();
+    } catch (err) { addToast('error', `添加失败: ${err}`); }
+    setContextMenu(null);
+  }, [refreshRoot, addToast]);
+
+  const handleImportBtoC = useCallback(async (srcPath: string) => {
+    try {
+      const name = srcPath.split('/').pop() || 'file';
+      const dest = `(vfs)/C/${name}`;
+      const content = await readFile(srcPath);
+      await writeFile(dest, content);
+      addToast('success', `已导入到 C 盘: ${name}`);
+      refreshRoot();
+    } catch (err) { addToast('error', `导入失败: ${err}`); }
+    setContextMenu(null);
+  }, [refreshRoot, addToast]);
+
+  // 内联创建：点击其他地方自动取消
+  useEffect(() => {
+    if (!creating) return;
+    const handler = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (!target.closest(`.${styles.inlineForm}`)) {
+        setCreating(null);
+        setNewName('');
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [creating]);
+
   const handleStartCreate = useCallback(
     (parentPath: string, type: 'file' | 'folder') => {
       setCreating({ parentPath, type });
       setNewName('');
       setContextMenu(null);
     }, []);
+
+  // ── 拖拽移动文件 ──
+  const handleMoveFile = useCallback(async (srcPath: string, destFolder: string) => {
+    if (srcPath === destFolder) return;
+    const name = srcPath.split('/').pop() || 'file';
+    // 显示确认对话框
+    setPendingMove({ srcPath, destFolder, name });
+  }, []);
+
+  // 确认移动
+  const confirmMove = useCallback(async () => {
+    if (!pendingMove) return;
+    const { srcPath, destFolder, name } = pendingMove;
+    setPendingMove(null);
+    const destPath = `${destFolder}/${name}`;
+    try {
+      const content = await readFile(srcPath);
+      await writeFile(destPath, content);
+      await deleteNode(srcPath);
+      addToast('success', `已移动: ${name}`);
+    } catch (err: any) {
+      const msg = String(err?.message ?? err);
+      if (msg.includes('UNIQUE') || msg.includes('unique')) {
+        addToast('error', `移动失败：目标文件夹已存在同名同版本文件「${name}」，操作已回退`);
+      } else {
+        addToast('error', `移动失败: ${msg}`);
+      }
+    }
+    setRefreshKey(k => k + 1);
+    const srcParent = srcPath.substring(0, srcPath.lastIndexOf('/'));
+    await Promise.all([
+      listDir(srcParent).catch(() => []),
+      listDir(destFolder).catch(() => []),
+    ]);
+    refreshRoot();
+  }, [pendingMove, refreshRoot, addToast]);
+
+  // 取消移动
+  const cancelMove = useCallback(() => setPendingMove(null), []);
 
   // 稳定事件引用（供 memo 包裹的 TreeNode 使用）
   const handleClickRef = useRef(handleClick);
@@ -286,12 +428,14 @@ function Sidebar({ mode }: { mode: NavMode }) {
           <div className="sidebar-toolbar">
             <span className="sidebar-toolbar__title">工作台</span>
             <div className="sidebar-toolbar__actions">
-              <button className="icon-btn" title="新建 Python 脚本"
+              <button className="icon-btn" title="新建文件"
                 onClick={() => setShowNewScript(true)}><Icon icon="file-pen" /></button>
               <button className="icon-btn" title="新建文件夹"
                 onClick={() => handleStartCreate('(vfs)/C', 'folder')}><Icon icon="folder-plus" /></button>
-              <button className="icon-btn" title="刷新（含B盘同步）"
-                onClick={() => { syncVault().finally(refreshRoot); setRefreshKey(k => k + 1); }}><Icon icon="rotate" /></button>
+              <button className="icon-btn" title="导入文件到 A 盘"
+                onClick={() => { importToA().then(refreshRoot).catch(() => {}); }}><Icon icon="download" /></button>
+              <button className="icon-btn" title="刷新（含A/B盘同步）"
+                onClick={refreshRoot}><Icon icon="rotate" /></button>
             </div>
           </div>
           <div className={styles.searchBox}>
@@ -302,18 +446,19 @@ function Sidebar({ mode }: { mode: NavMode }) {
           <div className="sidebar-tree">
             <TreeNode
               node={{ id: 0, name: 'C:', node_type: 'folder', size: null, modified_at: '', version: '0.1.0' }}
-              path="(vfs)/C" depth={0} expandedPaths={expandedPaths} selectedPath={selectedPath}
+              path="(vfs)/C" depth={0} expandedPaths={effectiveExpanded} selectedPath={selectedPath}
               preloadedChildren={filteredRootNodes} refreshKey={refreshKey}
-              onClick={stableClick} onContextMenu={stableContextMenu} />
+              onClick={stableClick} onContextMenu={stableContextMenu} onMoveFile={handleMoveFile} />
             <TreeNode
               node={{ id: -1, name: 'B:', node_type: 'folder', size: null, modified_at: '', version: '0.1.0' }}
-              path="(vfs)/B" depth={0} expandedPaths={expandedPaths} selectedPath={selectedPath}
-              preloadedChildren={bRootNodes.filter(n => {
-                if (mode === 'files') return n.node_type !== 'run';
-                if (mode === 'runs') return n.node_type === 'run';
-                return true;
-              })} refreshKey={refreshKey}
-              onClick={stableClick} onContextMenu={stableContextMenu} />
+              path="(vfs)/B" depth={0} expandedPaths={effectiveExpanded} selectedPath={selectedPath}
+              preloadedChildren={filteredBRootNodes} refreshKey={refreshKey}
+              onClick={stableClick} onContextMenu={stableContextMenu} onMoveFile={handleMoveFile} />
+            <TreeNode
+              node={{ id: -2, name: 'A:', node_type: 'folder', size: null, modified_at: '', version: '0.1.0' }}
+              path="(vfs)/A" depth={0} expandedPaths={effectiveExpanded} selectedPath={selectedPath}
+              preloadedChildren={filteredARootNodes} refreshKey={refreshKey}
+              onClick={stableClick} onContextMenu={stableContextMenu} onMoveFile={handleMoveFile} />
             {creating && (
               <div className={styles.inlineForm}>
                 <form onSubmit={e => { e.preventDefault(); submitCreate(); }}>
@@ -334,14 +479,34 @@ function Sidebar({ mode }: { mode: NavMode }) {
               <div className="context-menu__item" onClick={handleRename}><Icon icon="edit" /> 重命名</div>
               <div className="context-menu__item" onClick={handleVersionEdit}><Icon icon="tag" /> 设置版本</div>
               <div className="context-menu__item" onClick={handleDelete}><Icon icon="trash" /> 删除</div>
+              <div className="context-menu__divider" />
+              {contextMenu.path.startsWith('(vfs)/C') && contextMenu.node.node_type === 'file' && (
+                <div className="context-menu__item" onClick={() => handleExportCtoB(contextMenu.path)}><Icon icon="download" /> 导出到 B 盘</div>
+              )}
+              {contextMenu.path.startsWith('(vfs)/B') && contextMenu.node.node_type === 'file' && (
+                <>
+                  <div className="context-menu__item" onClick={() => handleSaveBtoA(contextMenu.path)}><Icon icon="save" /> 另存到 A 盘</div>
+                  <div className="context-menu__item" onClick={() => handleImportBtoC(contextMenu.path)}><Icon icon="download" /> 导入到 C 盘</div>
+                </>
+              )}
+              {contextMenu.path.startsWith('(vfs)/A') && contextMenu.node.node_type === 'file' && (
+                <div className="context-menu__item" onClick={() => handleAddAtoB(contextMenu.path)}><Icon icon="plus" /> 添加到 B 盘</div>
+              )}
             </div>
           )}
           <NewScriptDialog open={showNewScript} onSelect={handleCreateFromTemplate}
-            onCancel={() => setShowNewScript(false)} />
+            onCancel={() => setShowNewScript(false)}
+            existingNames={rootNodes.map(n => n.name)} />
           <ConfirmDialog open={confirmDelete !== null} title="确认删除"
             message={`确定要删除「${confirmDelete?.node.name ?? ''}」吗？此操作不可撤销。`}
             danger confirmLabel="删除" onConfirm={confirmDeleteAction}
             onCancel={() => setConfirmDelete(null)} />
+          {pendingMove && (
+            <ConfirmDialog open={true} title="确认移动"
+              message={`是否将「${pendingMove.name}」移动到「${pendingMove.destFolder.split('/').pop() || pendingMove.destFolder}」？`}
+              confirmLabel="移动" onConfirm={confirmMove}
+              onCancel={cancelMove} />
+          )}
           {renaming && (
             <div className="confirm-overlay" onClick={() => setRenaming(null)}>
               <div className="confirm-dialog" style={{ minWidth: 300 }} onClick={e => e.stopPropagation()}>
@@ -397,7 +562,7 @@ function Sidebar({ mode }: { mode: NavMode }) {
 const TreeNode = memo(function TreeNode({
   node, path, depth, expandedPaths, selectedPath,
   preloadedChildren, refreshKey,
-  onClick, onContextMenu,
+  onClick, onContextMenu, onMoveFile,
 }: {
   node: VfsNode;
   path: string;
@@ -408,14 +573,20 @@ const TreeNode = memo(function TreeNode({
   refreshKey: number;
   onClick: (node: VfsNode, path: string) => void;
   onContextMenu: (e: React.MouseEvent, node: VfsNode, path: string) => void;
+  onMoveFile: (srcPath: string, destFolder: string) => Promise<void>;
 }) {
   const [children, setChildren] = useState<VfsNode[] | null>(
     preloadedChildren !== undefined ? preloadedChildren : null
   );
   const [lastRefresh, setLastRefresh] = useState(0);
+  const [dragOver, setDragOver] = useState(false);
   const isExpanded = expandedPaths.has(path);
   const isSelected = selectedPath === path;
   const isFolder = node.node_type === 'folder';
+  const isFile = !isFolder && node.node_type !== 'run';
+  // A 盘只读，C/B 盘文件（非运行记录）可拖拽
+  const isMovable = isFile && (path.startsWith('(vfs)/C') || path.startsWith('(vfs)/B'));
+  const isDropTarget = isFolder && (path.startsWith('(vfs)/C') || path.startsWith('(vfs)/B'));
 
   // refreshKey 变化 → 清除缓存，触发重新加载
   useEffect(() => {
@@ -448,6 +619,7 @@ const TreeNode = memo(function TreeNode({
   const nodeClasses = [
     'tree-node',
     isSelected ? 'tree-node--selected' : '',
+    dragOver ? 'tree-node--drop-target' : '',
   ].filter(Boolean).join(' ');
 
   return (
@@ -455,6 +627,29 @@ const TreeNode = memo(function TreeNode({
       <div
         className={nodeClasses}
         style={{ paddingLeft: 8 + depth * 16 }}
+        draggable={isFile}
+        onDragStart={(e) => {
+          if (!isMovable) { e.preventDefault(); return; }
+          e.dataTransfer.setData('text/plain', path);
+          e.dataTransfer.effectAllowed = 'move';
+        }}
+        onDragOver={(e) => {
+          if (!isDropTarget) return;
+          e.preventDefault();
+          e.dataTransfer.dropEffect = 'move';
+          setDragOver(true);
+        }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={async (e) => {
+          e.preventDefault();
+          setDragOver(false);
+          if (!isDropTarget) return;
+          const srcPath = e.dataTransfer.getData('text/plain');
+          if (!srcPath || srcPath === path) return;
+          const srcParent = srcPath.substring(0, srcPath.lastIndexOf('/'));
+          if (srcParent === path) return;
+          await onMoveFile(srcPath, path);
+        }}
         onClick={() => onClick(node, path)}
         onContextMenu={e => onContextMenu(e, node, path)}
       >
@@ -485,6 +680,7 @@ const TreeNode = memo(function TreeNode({
               refreshKey={refreshKey}
               onClick={onClick}
               onContextMenu={onContextMenu}
+              onMoveFile={onMoveFile}
             />
           ))}
           {children?.length === 0 && (

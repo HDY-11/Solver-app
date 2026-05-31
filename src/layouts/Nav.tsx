@@ -72,7 +72,9 @@ function Nav({ detached }: { detached?: boolean }) {
     if (!tab) return;
     try {
       // 发送合并事件到主窗口
+      console.log('[merge] 分离窗口请求合并:', tab.path);
       await invoke('emit_merge_request', { path: tab.path, label: tab.label, icon: tab.icon });
+      console.log('[merge] 合并请求已发送');
       closeTab(contextMenu.path);
       // 如果是最后一个标签，关闭整个窗口
       if (tabs.length <= 1) {

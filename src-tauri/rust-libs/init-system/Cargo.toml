@@ -1,0 +1,11 @@
+[package]
+name = "init-system"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "init_system"
+crate-type = ["lib"]
+
+[dependencies]
+serde = { workspace = true }

@@ -1,5 +1,5 @@
 [workspace]
-members = ["rust-libs/error-system", "rust-libs/log-system", "rust-libs/python-bridge", "rust-libs/utils",'rust-libs/simple_motion', "rupy-libs/shape3", "rust-libs/event-system", "rust-libs/env-system", "rust-libs/vfs"]
+members = ["rust-libs/error-system", "rust-libs/log-system", "rust-libs/python-bridge", "rust-libs/utils",'rust-libs/simple_motion', "rupy-libs/shape3", "rust-libs/event-system", "rust-libs/env-system", "rust-libs/vfs", "rust-libs/init-system"]
 
 
 [package]
@@ -39,7 +39,7 @@ pyo3 = { version = "0.28.3", features = ["auto-initialize"] }
 tauri-plugin-dialog = "2"
 nalgebra = "0.34.2"
 python-bridge = { version = "0.1.0", path = "rust-libs/python-bridge" }
-tokio = "1.52.1"
+tokio = { version = "1.52.1", features = ["time"] }
 log = "0.4.29"
 anyhow = "1.0.102"
 windows = { version = "0.62.2", features = ["Win32_UI_Input_KeyboardAndMouse"] }
@@ -64,6 +64,7 @@ dashmap = "6.1.0"
 vfs = { version = "0.1.0", path = "rust-libs/vfs" }
 tauri-plugin-titlebar = { path = "plugins/titlebar" }
 env-system = { version = "0.1.0", path = "rust-libs/env-system" }
+init-system = { path = "rust-libs/init-system" }
 rusqlite = { version = "0.39.0", features = ["bundled"] }
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

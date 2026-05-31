@@ -13,12 +13,19 @@ use crate::query;
 
 /// 将 VFS 路径映射到真实文件系统路径
 /// `(vfs)/B/foo/bar.txt` → `vault_dir()/foo/bar.txt`
+/// `(vfs)/A/data.csv` → `imports_dir()/data.csv`
 pub fn vfs_to_real(vfs_path: &str) -> Option<PathBuf> {
-    let inner = env_system::vfs_inner_path(Path::new(vfs_path))?;
+    let volume = env_system::vfs_volume(Path::new(vfs_path))?;
+    let inner = env_system::vfs_inner_path(Path::new(vfs_path)).unwrap_or_default();
+    let base = match volume.as_str() {
+        "A" => env_system::imports_dir(),
+        "B" => env_system::vault_dir(),
+        _ => return None,
+    };
     if inner.is_empty() {
-        Some(env_system::vault_dir())
+        Some(base)
     } else {
-        Some(env_system::vault_dir().join(&inner))
+        Some(base.join(&inner))
     }
 }
 
@@ -30,17 +37,18 @@ pub fn file_hash(path: &Path) -> io::Result<String> {
     Ok(hex::encode(hasher.finalize()))
 }
 
-/// 同步 B 盘：扫描 vault_dir() → 确保 DB 中有对应节点
-/// - 新增的文件/文件夹 → INSERT
-/// - 已存在的节点 → UPDATE size/hash/modified_at
-/// - 已删除的文件/文件夹 → 标记 deleted=1（软删除）
+/// 同步真实文件卷（A/B 盘）：扫描真实目录 → 确保 DB 中有对应节点
 pub fn sync_real_volume(
     pool: &Pool<SqliteConnectionManager>,
     volume: &str,
 ) -> io::Result<()> {
-    let vault = env_system::vault_dir();
-    if !vault.exists() {
-        fs::create_dir_all(&vault)?;
+    let base_dir = match volume {
+        "A" => env_system::imports_dir(),
+        "B" => env_system::vault_dir(),
+        _ => return Err(io::Error::new(io::ErrorKind::InvalidInput, "不支持的卷")),
+    };
+    if !base_dir.exists() {
+        fs::create_dir_all(&base_dir)?;
     }
 
     let conn = pool.get()
@@ -54,16 +62,16 @@ pub fn sync_real_volume(
     let mut seen_ids: Vec<i64> = Vec::new();
 
     // 递归扫描
-    scan_dir(&conn, &vault, root_id, volume, &mut seen_ids)?;
+    scan_dir(&conn, &base_dir, root_id, volume, &mut seen_ids)?;
 
-    // 标记不再存在的节点为已删除
+    // A/B 盘不软删除：直接硬删除不在真实目录中的 DB 记录
     if !seen_ids.is_empty() {
         let placeholders = seen_ids.iter()
             .map(|_| "?")
             .collect::<Vec<_>>()
             .join(",");
         let sql = format!(
-            "UPDATE nodes SET deleted=1 WHERE volume=? AND parent_id IS NOT NULL AND id NOT IN ({})",
+            "DELETE FROM nodes WHERE volume=? AND parent_id IS NOT NULL AND id NOT IN ({})",
             placeholders
         );
         let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
@@ -76,7 +84,7 @@ pub fn sync_real_volume(
             .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
     }
 
-    log::info!("[real_fs] B盘同步完成: {} 个条目", seen_ids.len());
+    log::info!("[real_fs] {}盘同步完成: {} 个条目", volume, seen_ids.len());
     Ok(())
 }
 

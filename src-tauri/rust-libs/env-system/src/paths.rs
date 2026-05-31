@@ -82,6 +82,11 @@ pub fn vault_dir() -> PathBuf {
     app_data_dir().join(VAULT_DIR_NAME)
 }
 
+/// 导入区（A 盘）在真实文件系统中的根目录（只读）。
+pub fn imports_dir() -> PathBuf {
+    app_data_dir().join("imports")
+}
+
 /// 指定卷的 BlobStore 文件路径。
 pub fn blob_path(volume: &str) -> PathBuf {
     app_data_dir().join("blobs").join(format!("{}.{}", volume, BLOB_EXT))

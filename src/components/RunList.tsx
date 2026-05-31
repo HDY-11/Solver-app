@@ -26,14 +26,15 @@ function RunList() {
 
   const loadRuns = useCallback(async () => {
     try {
-      const [cRuns, bRuns] = await Promise.all([
+      const [cRuns, bRuns, aRuns] = await Promise.all([
         listDir('(vfs)/C/运行记录').catch(() => [] as VfsNode[]),
         listDir('(vfs)/B/运行记录').catch(() => [] as VfsNode[]),
+        listDir('(vfs)/A/运行记录').catch(() => [] as VfsNode[]),
       ]);
-      // 标记来源卷
       const all = [
         ...cRuns.map(n => ({ ...n, _volume: 'C' })),
         ...bRuns.map(n => ({ ...n, _volume: 'B' })),
+        ...aRuns.map(n => ({ ...n, _volume: 'A' })),
       ];
       setRuns(
         all
@@ -109,7 +110,7 @@ function RunList() {
               <span className="run-item__icon"><Icon icon="chart" /></span>
               <div className="run-item__info">
                 <span className="run-item__name">
-                  {node._volume === 'B' && <span style={{ color: 'var(--blue-500)', fontSize: '0.65rem', marginRight: 4 }}>[B]</span>}
+                  {node._volume !== 'C' && <span style={{ color: 'var(--blue-500)', fontSize: '0.65rem', marginRight: 4 }}>[{node._volume}]</span>}
                   {node.name}
                 </span>
                 <span className="run-item__meta">

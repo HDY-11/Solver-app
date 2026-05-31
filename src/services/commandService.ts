@@ -95,4 +95,5 @@ export const commandService = new CommandService();
 export const Commands = {
   EDITOR_SAVE: 'editor.save',
   EDITOR_RUN: 'editor.run',
+  EDITOR_FIND: 'editor.find',
 } as const;
