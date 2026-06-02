@@ -1,4 +1,4 @@
-use tauri::{AppHandle, Emitter};
+use tauri::AppHandle;
 use error_system::{ResultLogExt, AppError};
 use once_cell::sync::OnceCell;
 
@@ -8,6 +8,8 @@ pub static GLOBAL_APPHANDLE: OnceCell<AppHandle> = OnceCell::new();
 pub mod event_registry {
     /// 所有有效事件名（编译期检查用）
     pub const VALID_EVENTS: &[&str] = &[
+        "app-ready",
+        "drag-release",
         "script-result",
         "run-output",
         "run-complete",
@@ -27,7 +29,7 @@ pub mod event_registry {
     }
 
     /// 编译期字符串相等比较（手动逐字节）
-    const fn const_str_equal(a: &str, b: &str) -> bool {
+    pub(crate) const fn const_str_equal(a: &str, b: &str) -> bool {
         let a_bytes = a.as_bytes();
         let b_bytes = b.as_bytes();
 
@@ -52,6 +54,43 @@ pub mod event_registry {
         #[test]
         fn empty_registry_rejects_all() {
             assert!(!is_valid("any-event"));
+        }
+    }
+}
+
+// ── 目标注册表（emit_to! 编译期检查用） ────────────────
+pub mod target_registry {
+    /// 所有有效的目标 label（编译期检查用）
+    /// 注意：此处列出的是静态已知的窗口/webview label，
+    /// 动态创建的分离窗口 label 应通过 `dyn` 语法绕过检查。
+    pub const VALID_TARGETS: &[&str] = &[
+        "main",
+    ];
+
+    /// 检查目标 label 是否在注册表中
+    pub const fn is_valid(target: &str) -> bool {
+        let mut i = 0;
+        while i < VALID_TARGETS.len() {
+            if super::event_registry::const_str_equal(target, VALID_TARGETS[i]) {
+                return true;
+            }
+            i += 1;
+        }
+        false
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn known_target_passes() {
+            assert!(is_valid("main"));
+        }
+
+        #[test]
+        fn unknown_target_fails() {
+            assert!(!is_valid("nonexistent"));
         }
     }
 }
@@ -95,9 +134,13 @@ macro_rules! emit {
     };
 
     // ── 内部单事件分发 ────────────────────────
-    // 静态
-    (@single $event:literal : $payload:expr) => {
-        // 编译期检查...
+    // 静态：带注册表检查
+    (@single $event:literal : $payload:expr) => {{
+        const _: () = {
+            if !$crate::event_registry::is_valid($event) {
+                panic!("Unknown event type in emit!(). Add it to the event registry.");
+            }
+        };
         match $crate::GLOBAL_APPHANDLE.get() {
             Some(handle) => {
                 let _ = tauri::Emitter::emit(handle, $event, $payload);
@@ -107,9 +150,9 @@ macro_rules! emit {
                 eprintln!("[emit] not initialized: {}", $event);
             }
         }
-    };
-    // 动态字面量
-    (@single dyn $event:literal : $payload:expr) => {
+    }};
+    // 动态字面量：无编译期检查
+    (@single dyn $event:literal : $payload:expr) => {{
         match $crate::GLOBAL_APPHANDLE.get() {
             Some(handle) => {
                 let _ = tauri::Emitter::emit(handle, $event, $payload);
@@ -119,9 +162,9 @@ macro_rules! emit {
                 eprintln!("[emit] not initialized: {}", $event);
             }
         }
-    };
-    // 动态表达式
-    (@single dyn ($event:expr) : $payload:expr) => {
+    }};
+    // 动态表达式：无编译期检查
+    (@single dyn ($event:expr) : $payload:expr) => {{
         match $crate::GLOBAL_APPHANDLE.get() {
             Some(handle) => {
                 let _ = tauri::Emitter::emit(handle, $event, $payload);
@@ -131,7 +174,276 @@ macro_rules! emit {
                 eprintln!("[emit] not initialized: dynamic event");
             }
         }
+    }};
+}
+
+/// 向指定目标发射事件
+///
+/// ## 语法
+/// - 静态目标 + 静态事件：`emit_to!("main" => "event-name": payload)`
+/// - 动态目标（字面量）：`emit_to!(dyn "main" => "event-name": payload)`
+/// - 动态目标（表达式）：`emit_to!(dyn (target_expr) => "event-name": payload)`
+/// - 动态事件：`emit_to!("main" => dyn "event-name": payload)`
+/// - 批量：`emit_to!("main" => "a": pa, "b": pb)`
+/// - 混合批量：`emit_to!("main" => "a": pa, dyn "b": pb)`
+///
+/// ## target 注册表
+/// 静态目标字面量（不含 `dyn` 前缀）必须在 `target_registry::VALID_TARGETS`
+/// 中注册，否则编译失败。动态创建的分离窗口请使用 `dyn` 语法绕过检查。
+#[macro_export]
+macro_rules! emit_to {
+    // ═══════════════════════════════════════════════════════
+    // 批量入口（事件类型必须一致）
+    // ═══════════════════════════════════════════════════════
+
+    // ── 静态 target，批量静态事件 ─────────────────────
+    ($target:literal => $($event:literal : $payload:expr),+ $(,)?) => {
+        $(
+            emit_to!(@single $target : $event : $payload);
+        )+
     };
+    // ── 静态 target，批量动态字面量事件 ───────────────
+    ($target:literal => $(dyn $event:literal : $payload:expr),+ $(,)?) => {
+        $(
+            emit_to!(@single $target : dyn $event : $payload);
+        )+
+    };
+    // ── 静态 target，批量动态表达式事件 ───────────────
+    ($target:literal => $(dyn ($event:expr) : $payload:expr),+ $(,)?) => {
+        $(
+            emit_to!(@single $target : dyn ($event) : $payload);
+        )+
+    };
+
+    // ── 动态字面量 target，批量静态事件 ───────────────
+    (dyn $target:literal => $($event:literal : $payload:expr),+ $(,)?) => {
+        $(
+            emit_to!(@single dyn $target : $event : $payload);
+        )+
+    };
+    // ── 动态字面量 target，批量动态字面量事件 ─────────
+    (dyn $target:literal => $(dyn $event:literal : $payload:expr),+ $(,)?) => {
+        $(
+            emit_to!(@single dyn $target : dyn $event : $payload);
+        )+
+    };
+    // ── 动态字面量 target，批量动态表达式事件 ─────────
+    (dyn $target:literal => $(dyn ($event:expr) : $payload:expr),+ $(,)?) => {
+        $(
+            emit_to!(@single dyn $target : dyn ($event) : $payload);
+        )+
+    };
+
+    // ── 动态表达式 target，批量静态事件 ───────────────
+    (dyn ($target:expr) => $($event:literal : $payload:expr),+ $(,)?) => {
+        $(
+            emit_to!(@single dyn ($target) : $event : $payload);
+        )+
+    };
+    // ── 动态表达式 target，批量动态字面量事件 ─────────
+    (dyn ($target:expr) => $(dyn $event:literal : $payload:expr),+ $(,)?) => {
+        $(
+            emit_to!(@single dyn ($target) : dyn $event : $payload);
+        )+
+    };
+    // ── 动态表达式 target，批量动态表达式事件 ─────────
+    (dyn ($target:expr) => $(dyn ($event:expr) : $payload:expr),+ $(,)?) => {
+        $(
+            emit_to!(@single dyn ($target) : dyn ($event) : $payload);
+        )+
+    };
+
+    // ═══════════════════════════════════════════════════════
+    // 单事件入口（防止与批量冲突：必须放批量之后）
+    // ═══════════════════════════════════════════════════════
+
+    // ── 静态 target，静态 event ──────────────────────
+    ($target:literal => $event:literal : $payload:expr) => {
+        emit_to!(@single $target : $event : $payload);
+    };
+    // ── 静态 target，动态字面量 event ────────────────
+    ($target:literal => dyn $event:literal : $payload:expr) => {
+        emit_to!(@single $target : dyn $event : $payload);
+    };
+    // ── 静态 target，动态表达式 event ────────────────
+    ($target:literal => dyn ($event:expr) : $payload:expr) => {
+        emit_to!(@single $target : dyn ($event) : $payload);
+    };
+
+    // ── 动态字面量 target，静态 event ────────────────
+    (dyn $target:literal => $event:literal : $payload:expr) => {
+        emit_to!(@single dyn $target : $event : $payload);
+    };
+    // ── 动态字面量 target，动态字面量 event ──────────
+    (dyn $target:literal => dyn $event:literal : $payload:expr) => {
+        emit_to!(@single dyn $target : dyn $event : $payload);
+    };
+    // ── 动态字面量 target，动态表达式 event ──────────
+    (dyn $target:literal => dyn ($event:expr) : $payload:expr) => {
+        emit_to!(@single dyn $target : dyn ($event) : $payload);
+    };
+
+    // ── 动态表达式 target，静态 event ────────────────
+    (dyn ($target:expr) => $event:literal : $payload:expr) => {
+        emit_to!(@single dyn ($target) : $event : $payload);
+    };
+    // ── 动态表达式 target，动态字面量 event ──────────
+    (dyn ($target:expr) => dyn $event:literal : $payload:expr) => {
+        emit_to!(@single dyn ($target) : dyn $event : $payload);
+    };
+    // ── 动态表达式 target，动态表达式 event ──────────
+    (dyn ($target:expr) => dyn ($event:expr) : $payload:expr) => {
+        emit_to!(@single dyn ($target) : dyn ($event) : $payload);
+    };
+
+    // ═══════════════════════════════════════════════════════
+    // 内部单事件分发
+    // ═══════════════════════════════════════════════════════
+
+    // ── 静态 target + 静态 event：双编译期检查 ───────
+    (@single $target:literal : $event:literal : $payload:expr) => {{
+        const _: () = {
+            if !$crate::target_registry::is_valid($target) {
+                panic!("Unknown target label in emit_to!(). Add it to the target registry.");
+            }
+            if !$crate::event_registry::is_valid($event) {
+                panic!("Unknown event type in emit_to!(). Add it to the event registry.");
+            }
+        };
+        match $crate::GLOBAL_APPHANDLE.get() {
+            Some(handle) => {
+                let _ = tauri::Emitter::emit_to(handle, $target, $event, $payload);
+            }
+            None => {
+                #[cfg(debug_assertions)]
+                eprintln!("[emit_to] not initialized: {} -> {}", $target, $event);
+            }
+        }
+    }};
+
+    // ── 静态 target + 动态字面量 event ───────────────
+    (@single $target:literal : dyn $event:literal : $payload:expr) => {{
+        const _: () = {
+            if !$crate::target_registry::is_valid($target) {
+                panic!("Unknown target label in emit_to!(). Add it to the target registry.");
+            }
+        };
+        match $crate::GLOBAL_APPHANDLE.get() {
+            Some(handle) => {
+                let _ = tauri::Emitter::emit_to(handle, $target, $event, $payload);
+            }
+            None => {
+                #[cfg(debug_assertions)]
+                eprintln!("[emit_to] not initialized: {} -> {}", $target, $event);
+            }
+        }
+    }};
+
+    // ── 静态 target + 动态表达式 event ───────────────
+    (@single $target:literal : dyn ($event:expr) : $payload:expr) => {{
+        const _: () = {
+            if !$crate::target_registry::is_valid($target) {
+                panic!("Unknown target label in emit_to!(). Add it to the target registry.");
+            }
+        };
+        match $crate::GLOBAL_APPHANDLE.get() {
+            Some(handle) => {
+                let _ = tauri::Emitter::emit_to(handle, $target, $event, $payload);
+            }
+            None => {
+                #[cfg(debug_assertions)]
+                eprintln!("[emit_to] not initialized: {} -> dynamic event", $target);
+            }
+        }
+    }};
+
+    // ── 动态字面量 target + 静态 event ───────────────
+    (@single dyn $target:literal : $event:literal : $payload:expr) => {{
+        const _: () = {
+            if !$crate::event_registry::is_valid($event) {
+                panic!("Unknown event type in emit_to!(). Add it to the event registry.");
+            }
+        };
+        match $crate::GLOBAL_APPHANDLE.get() {
+            Some(handle) => {
+                let _ = tauri::Emitter::emit_to(handle, $target, $event, $payload);
+            }
+            None => {
+                #[cfg(debug_assertions)]
+                eprintln!("[emit_to] not initialized: {} -> {}", $target, $event);
+            }
+        }
+    }};
+
+    // ── 动态字面量 target + 动态字面量 event ─────────
+    (@single dyn $target:literal : dyn $event:literal : $payload:expr) => {{
+        match $crate::GLOBAL_APPHANDLE.get() {
+            Some(handle) => {
+                let _ = tauri::Emitter::emit_to(handle, $target, $event, $payload);
+            }
+            None => {
+                #[cfg(debug_assertions)]
+                eprintln!("[emit_to] not initialized: {} -> {}", $target, $event);
+            }
+        }
+    }};
+
+    // ── 动态字面量 target + 动态表达式 event ─────────
+    (@single dyn $target:literal : dyn ($event:expr) : $payload:expr) => {{
+        match $crate::GLOBAL_APPHANDLE.get() {
+            Some(handle) => {
+                let _ = tauri::Emitter::emit_to(handle, $target, $event, $payload);
+            }
+            None => {
+                #[cfg(debug_assertions)]
+                eprintln!("[emit_to] not initialized: {} -> dynamic event", $target);
+            }
+        }
+    }};
+
+    // ── 动态表达式 target + 静态 event ───────────────
+    (@single dyn ($target:expr) : $event:literal : $payload:expr) => {{
+        const _: () = {
+            if !$crate::event_registry::is_valid($event) {
+                panic!("Unknown event type in emit_to!(). Add it to the event registry.");
+            }
+        };
+        match $crate::GLOBAL_APPHANDLE.get() {
+            Some(handle) => {
+                let _ = tauri::Emitter::emit_to(handle, $target, $event, $payload);
+            }
+            None => {
+                #[cfg(debug_assertions)]
+                eprintln!("[emit_to] not initialized: dynamic target -> {}", $event);
+            }
+        }
+    }};
+
+    // ── 动态表达式 target + 动态字面量 event ─────────
+    (@single dyn ($target:expr) : dyn $event:literal : $payload:expr) => {{
+        match $crate::GLOBAL_APPHANDLE.get() {
+            Some(handle) => {
+                let _ = tauri::Emitter::emit_to(handle, $target, $event, $payload);
+            }
+            None => {
+                #[cfg(debug_assertions)]
+                eprintln!("[emit_to] not initialized: dynamic target -> {}", $event);
+            }
+        }
+    }};
+
+    // ── 动态表达式 target + 动态表达式 event ─────────
+    (@single dyn ($target:expr) : dyn ($event:expr) : $payload:expr) => {{
+        match $crate::GLOBAL_APPHANDLE.get() {
+            Some(handle) => {
+                let _ = tauri::Emitter::emit_to(handle, $target, $event, $payload);
+            }
+            None => {
+                #[cfg(debug_assertions)]
+                eprintln!("[emit_to] not initialized: dynamic target -> dynamic event");
+            }
+        }
+    }};
 }
 
 #[macro_export]

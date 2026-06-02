@@ -4787,6 +4787,7 @@ dependencies = [
 name = "tauri-plugin-titlebar"
 version = "0.1.0"
 dependencies = [
+ "error-system",
  "event-system",
  "log",
  "serde",

@@ -10,16 +10,10 @@ use env_system as env;
 use init_system;
 use anyhow::Error;
 
-/// 启动全局拖拽追踪（委托给 titlebar 插件）
+/// 将分离窗口注册到 titlebar 插件（委托），启用拖拽合并检测
 #[command]
-fn start_drag_track(tab_path: String, tab_label: String, device_pixel_ratio: f64, start_screen_x: i32, start_screen_y: i32) {
-    tauri_plugin_titlebar::commands::start_drag_track(tab_path, tab_label, device_pixel_ratio, start_screen_x, start_screen_y);
-}
-
-/// 停止全局拖拽追踪（委托给 titlebar 插件）
-#[command]
-fn stop_drag_track() {
-    tauri_plugin_titlebar::commands::stop_drag_track();
+fn register_detached(window: tauri::Window) {
+    tauri_plugin_titlebar::commands::register_detached(window);
 }
 
 mod config;
@@ -624,8 +618,7 @@ pub fn run() {
             app_ready,
             get_loading_status,
             frontend_ready,
-            start_drag_track,
-            stop_drag_track,
+            register_detached,
         ])
         .setup(move |app| {
             emit_loading(80, "启动引擎...");

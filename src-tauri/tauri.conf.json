@@ -27,7 +27,6 @@
   "bundle": {
     "active": true,
     "resources": {
-      "../scripts/": "scripts/",
       "../.venv/Lib/": "Lib/",
       "../.venv/Scripts/DLLs/": "DLLs/",
       "../dlls/": "./"

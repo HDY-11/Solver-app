@@ -160,54 +160,13 @@ function DragMergeHandler() {
     return () => { unlisten?.(); };
   }, [isDetached, tabs, closeTab]);
 
-  // 绑定标题栏拖拽事件（仅实际拖拽>30px才启动钩子，避免点击误触）
+  // 注册分离窗口到 titlebar 插件，启用拖拽合并检测
+  // Windows 通过 WM_ENTERSIZEMOVE / WM_EXITSIZEMOVE 自动追踪拖拽，
+  // 不再需要前端手动追踪 mousedown/move/up
   useEffect(() => {
     if (!isDetached) return;
-    const el = document.querySelector('[data-tauri-drag-region]');
-    if (!el) { logError('[merge] 未找到 data-tauri-drag-region 元素'); return; }
-    logInfo('[merge] 标题栏拖拽监听已绑定（阈值 30px）');
-
-    let startX = 0, startY = 0;
-    let hookStarted = false;
-    const THRESHOLD = 30;
-
-    const onDown = (e: MouseEvent) => {
-      startX = e.screenX;
-      startY = e.screenY;
-      hookStarted = false;
-      logInfo(`[merge] mousedown (${startX}, ${startY})`);
-    };
-
-    const onMove = (e: MouseEvent) => {
-      if (hookStarted) return;
-      const dx = e.screenX - startX;
-      const dy = e.screenY - startY;
-      if (dx * dx + dy * dy > THRESHOLD * THRESHOLD) {
-        hookStarted = true;
-        logInfo(`[merge] 拖拽超过阈值 → start_drag_track`);
-        invoke('start_drag_track', { tabPath: '', tabLabel: '', devicePixelRatio: window.devicePixelRatio, startScreenX: startX, startScreenY: startY }).catch(e => logError('[merge] start_drag_track 失败:', e));
-      }
-    };
-
-    const onUp = () => {
-      if (hookStarted) {
-        logInfo('[merge] mouseup → stop_drag_track');
-        invoke('stop_drag_track').catch(e => logError('[merge] stop_drag_track 失败:', e));
-      } else {
-        logInfo('[merge] mouseup（未超过阈值，忽略）');
-      }
-      startX = startY = 0;
-      hookStarted = false;
-    };
-
-    el.addEventListener('mousedown', onDown);
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseup', onUp);
-    return () => {
-      el.removeEventListener('mousedown', onDown);
-      document.removeEventListener('mousemove', onMove);
-      document.removeEventListener('mouseup', onUp);
-    };
+    logInfo('[merge] 注册分离窗口 → register_detached');
+    invoke('register_detached').catch(e => logError('[merge] register_detached 失败:', e));
   }, [isDetached]);
 
   if (!isDetached) return null;
