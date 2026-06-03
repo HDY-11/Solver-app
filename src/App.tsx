@@ -160,13 +160,15 @@ function DragMergeHandler() {
     return () => { unlisten?.(); };
   }, [isDetached, tabs, closeTab]);
 
-  // 注册分离窗口到 titlebar 插件，启用拖拽合并检测
+  // 注册分离窗口到 window_enhance 插件，启用拖拽合并检测
   // Windows 通过 WM_ENTERSIZEMOVE / WM_EXITSIZEMOVE 自动追踪拖拽，
   // 不再需要前端手动追踪 mousedown/move/up
   useEffect(() => {
     if (!isDetached) return;
-    logInfo('[merge] 注册分离窗口 → register_detached');
-    invoke('register_detached').catch(e => logError('[merge] register_detached 失败:', e));
+    const label = getCurrentWindow().label;
+    logInfo(`[merge] 注册分离窗口 → register_window label=${label} kind=Detached`);
+    invoke('register_window', { label, kind: 'Detached' })
+      .catch(e => logError('[merge] register_window 失败:', e));
   }, [isDetached]);
 
   if (!isDetached) return null;
@@ -248,6 +250,12 @@ function App() {
     invoke('frontend_ready').catch(() => {});
     const close = (window as any).__closeSplash as (() => void) | undefined;
     if (close) close();
+  }, []);
+
+  // 注册主窗口到 window_enhance 插件，启用自定义标题栏
+  useEffect(() => {
+    invoke('register_window', { label: 'main', kind: 'Main' })
+      .catch(e => logError('[window_enhance] 主窗口注册失败:', e));
   }, []);
 
   // 注册编辑器命令和快捷键

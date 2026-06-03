@@ -4324,7 +4324,7 @@ dependencies = [
  "tauri-plugin-dialog",
  "tauri-plugin-log",
  "tauri-plugin-opener",
- "tauri-plugin-titlebar",
+ "tauri-plugin-window-enhance",
  "thiserror 2.0.18",
  "tokio",
  "toml 1.1.2+spec-1.1.0",
@@ -4784,10 +4784,9 @@ dependencies = [
 ]
 
 [[package]]
-name = "tauri-plugin-titlebar"
+name = "tauri-plugin-window-enhance"
 version = "0.1.0"
 dependencies = [
- "error-system",
  "event-system",
  "log",
  "serde",

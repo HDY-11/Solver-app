@@ -10,10 +10,38 @@ use env_system as env;
 use init_system;
 use anyhow::Error;
 
-/// 将分离窗口注册到 titlebar 插件（委托），启用拖拽合并检测
+/// 前端通知注册窗口。
+///
+/// 所有窗口（包括主窗口）由前端在挂载后主动调用此命令，
+/// 传入 label 和 kind（"Main" / "Detached"），后端解析 HWND 后注册到 window_enhance。
 #[command]
-fn register_detached(window: tauri::Window) {
-    tauri_plugin_titlebar::commands::register_detached(window);
+fn register_window(app: tauri::AppHandle, label: String, kind: String) {
+    use tauri_plugin_window_enhance::state::WindowKind;
+
+    let window_kind = match kind.as_str() {
+        "Main" => WindowKind::Main,
+        "Detached" => WindowKind::Detached,
+        other => {
+            log::warn!("[window_enhance] register_window: 未知的 kind '{}'", other);
+            return;
+        }
+    };
+
+    log::info!("[window_enhance] register_window: label={} kind={}", label, kind);
+
+    #[cfg(target_os = "windows")]
+    if let Some(window) = app.get_webview_window(&label) {
+        if let Ok(hwnd) = window.hwnd() {
+            tauri_plugin_window_enhance::commands::register(hwnd.0 as isize, window_kind);
+        } else {
+            log::warn!("[window_enhance] register_window: 无法获取 HWND for label={}", label);
+        }
+    } else {
+        log::warn!("[window_enhance] register_window: 未找到窗口 label={}", label);
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    let _ = (app, label, kind);
 }
 
 mod config;
@@ -581,7 +609,7 @@ pub fn run() {
 
     tauri::Builder::default()
         .manage(log_handle.clone())
-        .plugin(tauri_plugin_titlebar::init())
+        .plugin(tauri_plugin_window_enhance::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_log::Builder::default()
@@ -618,7 +646,7 @@ pub fn run() {
             app_ready,
             get_loading_status,
             frontend_ready,
-            register_detached,
+            register_window,
         ])
         .setup(move |app| {
             emit_loading(80, "启动引擎...");

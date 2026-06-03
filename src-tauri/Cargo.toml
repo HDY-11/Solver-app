@@ -62,7 +62,7 @@ r2d2 = "0.8.10"
 r2d2_sqlite = "0.34"
 dashmap = "6.1.0"
 vfs = { version = "0.1.0", path = "rust-libs/vfs" }
-tauri-plugin-titlebar = { path = "plugins/titlebar" }
+tauri-plugin-window-enhance = { path = "plugins/window_enhance" }
 env-system = { version = "0.1.0", path = "rust-libs/env-system" }
 init-system = { path = "rust-libs/init-system" }
 rusqlite = { version = "0.39.0", features = ["bundled"] }
