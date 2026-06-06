@@ -1,7 +1,7 @@
 [package]
 name = "tauri-plugin-window-enhance"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 
 [lib]
 crate-type = ["lib"]
@@ -11,7 +11,7 @@ tauri = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 log = { workspace = true }
-event-system = { path = "../../rust-libs/event-system" }
+bitflags = "2"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 windows = { version = "0.62.2", features = [

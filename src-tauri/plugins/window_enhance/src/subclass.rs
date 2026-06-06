@@ -29,8 +29,8 @@ use super::manager::WindowManager;
 // ScreenToClient 在 windows crate 0.62 中需要 Win32_Graphics_Gdi feature，
 // 为避免额外依赖，直接通过 FFI 声明（link to user32.dll）。
 #[cfg(target_os = "windows")]
-extern "system" {
-    fn ScreenToClient(hWnd: HWND, lpPoint: *mut POINT) -> i32;
+unsafe extern "system" {
+    unsafe fn ScreenToClient(hWnd: HWND, lpPoint: *mut POINT) -> i32;
 }
 
 // ═══════════════════════════════════════════════════════════════════

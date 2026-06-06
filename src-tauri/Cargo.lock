@@ -4787,7 +4787,7 @@ dependencies = [
 name = "tauri-plugin-window-enhance"
 version = "0.1.0"
 dependencies = [
- "event-system",
+ "bitflags 2.11.0",
  "log",
  "serde",
  "serde_json",

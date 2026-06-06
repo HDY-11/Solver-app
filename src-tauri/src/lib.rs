@@ -10,38 +10,172 @@ use env_system as env;
 use init_system;
 use anyhow::Error;
 
-/// 前端通知注册窗口。
+use tauri_plugin_window_enhance::{
+    HookBehaviors, NoopWindowBehavior, WindowBehavior, WindowManager,
+};
+
+/// 前端通知注册窗口（Hook 注入模式）。
 ///
-/// 所有窗口（包括主窗口）由前端在挂载后主动调用此命令，
-/// 传入 label 和 kind（"Main" / "Detached"），后端解析 HWND 后注册到 window_enhance。
+/// 前端传递 `behaviors` 字符串数组声明兴趣（如 `["nchittest", "drag_end"]`），
+/// 后端解析为 `HookBehaviors` bitflags 并注入对应的消息处理器。
 #[command]
-fn register_window(app: tauri::AppHandle, label: String, kind: String) {
-    use tauri_plugin_window_enhance::state::WindowKind;
+fn register_window(app: tauri::AppHandle, label: String, behaviors: Vec<String>) {
+    use tauri_plugin_window_enhance::commands;
 
-    let window_kind = match kind.as_str() {
-        "Main" => WindowKind::Main,
-        "Detached" => WindowKind::Detached,
-        other => {
-            log::warn!("[window_enhance] register_window: 未知的 kind '{}'", other);
-            return;
+    // 解析字符串 → bitflags
+    let mut flags = HookBehaviors::empty();
+    for b in &behaviors {
+        match b.as_str() {
+            "nchittest"  => flags |= HookBehaviors::NCHITTEST,
+            "drag_start" => flags |= HookBehaviors::DRAG_START,
+            "drag_end"   => flags |= HookBehaviors::DRAG_END,
+            other => {
+                log::warn!("[window_enhance] 未知行为标志 '{}'，忽略", other);
+            }
         }
-    };
+    }
 
-    log::info!("[window_enhance] register_window: label={} kind={}", label, kind);
+    if flags.is_empty() {
+        log::warn!("[window_enhance] register_window: label={} 无有效行为标志，跳过", label);
+        return;
+    }
+
+    log::info!("[window_enhance] register_window: label={} behaviors={:?}", label, flags);
 
     #[cfg(target_os = "windows")]
     if let Some(window) = app.get_webview_window(&label) {
         if let Ok(hwnd) = window.hwnd() {
-            tauri_plugin_window_enhance::commands::register(hwnd.0 as isize, window_kind);
+            let hwnd_raw = hwnd.0 as isize;
+
+            let needs_drag_detection =
+                flags.intersects(HookBehaviors::DRAG_START | HookBehaviors::DRAG_END);
+
+            if needs_drag_detection {
+                commands::register(
+                    hwnd_raw,
+                    flags,
+                    Box::new(DetachedWindowBehavior::new(app.clone())),
+                );
+            } else {
+                commands::register(hwnd_raw, flags, Box::new(NoopWindowBehavior));
+            }
         } else {
-            log::warn!("[window_enhance] register_window: 无法获取 HWND for label={}", label);
+            log::warn!("[window_enhance] 无法获取 HWND for label={}", label);
         }
     } else {
-        log::warn!("[window_enhance] register_window: 未找到窗口 label={}", label);
+        log::warn!("[window_enhance] 未找到窗口 label={}", label);
     }
 
     #[cfg(not(target_os = "windows"))]
-    let _ = (app, label, kind);
+    let _ = (app, label, behaviors);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// 业务常量（从插件层移出 — R3）
+// ═══════════════════════════════════════════════════════════════════
+
+/// Nav 区域在窗口客户区中的 CSS 像素范围（从窗口顶部算起）。
+const NAV_TOP_CSS_PX: f64 = 60.0;
+const NAV_BOTTOM_CSS_PX: f64 = 124.0;
+
+// ═══════════════════════════════════════════════════════════════════
+// 消息处理器：分离窗口（拖拽合并检测）
+// ═══════════════════════════════════════════════════════════════════
+
+/// 分离窗口的消息处理器：标题栏命中测试 + 拖拽合并检测。
+struct DetachedWindowBehavior {
+    app_handle: tauri::AppHandle,
+}
+
+impl DetachedWindowBehavior {
+    fn new(app_handle: tauri::AppHandle) -> Self {
+        Self { app_handle }
+    }
+}
+
+impl WindowBehavior for DetachedWindowBehavior {
+    fn on_drag_start(&self, hwnd: isize) -> Result<(), tauri_plugin_window_enhance::BehaviorError> {
+        log::debug!("[window_enhance] 分离窗口开始移动 0x{:x}", hwnd);
+        Ok(())
+    }
+
+    fn on_drag_end(&self, _hwnd: isize) -> Result<(), tauri_plugin_window_enhance::BehaviorError> {
+        let manager = WindowManager::global();
+
+        // 1. 获取光标屏幕坐标
+        let cursor_screen = match manager.cursor_position() {
+            Some(pt) => pt,
+            None => {
+                log::warn!("[window_enhance] 无法获取光标位置，跳过合并检测");
+                return Ok(());
+            }
+        };
+
+        // 2. 找到主窗口 HWND
+        let main_hwnd = manager.find_first_hwnd_by(|state| {
+            state.behaviors == HookBehaviors::NCHITTEST
+        });
+
+        if main_hwnd == 0 {
+            log::warn!("[window_enhance] 未找到已注册的主窗口，跳过合并检测");
+            return Ok(());
+        }
+
+        // 3. 获取 DPI 缩放比
+        let scale = manager.dpr();
+
+        // 4. 光标屏幕坐标 → 主窗口客户区坐标
+        let cursor_client = manager.screen_to_client(main_hwnd, cursor_screen);
+
+        // 5. 获取主窗口客户区尺寸
+        let client_rect = manager.client_rect(main_hwnd);
+
+        // 6. Nav 区域命中测试
+        let cursor_in_nav = check_cursor_in_nav(
+            cursor_client.x,
+            cursor_client.y,
+            client_rect.width,
+            scale,
+        );
+
+        log::debug!(
+            "[window_enhance] 合并检测: scale={:.2} client=({},{}) nav_y=({:.0},{:.0}) cursor_client=({},{}) hit={}",
+            scale,
+            client_rect.width, client_rect.height,
+            NAV_TOP_CSS_PX * scale, NAV_BOTTOM_CSS_PX * scale,
+            cursor_client.x, cursor_client.y,
+            cursor_in_nav,
+        );
+
+        if cursor_in_nav {
+            log::info!("[window_enhance] 光标在主窗口 Nav 区域，发射 drag-release 事件");
+            let payload = serde_json::json!({
+                "screenX": cursor_screen.x,
+                "screenY": cursor_screen.y,
+            });
+            if let Err(e) = tauri::Emitter::emit(&self.app_handle, "drag-release", payload) {
+                log::error!("[window_enhance] 发射 drag-release 事件失败: {}", e);
+            }
+        }
+
+        Ok(())
+    }
+}
+
+/// 判断客户区坐标是否落在主窗口的 Nav 区域内 — **纯函数**。
+fn check_cursor_in_nav(
+    cursor_x: i32,
+    cursor_y: i32,
+    client_width: i32,
+    scale: f64,
+) -> bool {
+    let nav_top = (NAV_TOP_CSS_PX * scale) as i32;
+    let nav_bottom = (NAV_BOTTOM_CSS_PX * scale) as i32;
+
+    cursor_x >= 0
+        && cursor_x <= client_width
+        && cursor_y >= nav_top
+        && cursor_y <= nav_bottom
 }
 
 mod config;

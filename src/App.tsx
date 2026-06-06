@@ -167,7 +167,7 @@ function DragMergeHandler() {
     if (!isDetached) return;
     const label = getCurrentWindow().label;
     logInfo(`[merge] 注册分离窗口 → register_window label=${label} kind=Detached`);
-    invoke('register_window', { label, kind: 'Detached' })
+    invoke('register_window', { label, behaviors: ['nchittest', 'drag_start', 'drag_end'] })
       .catch(e => logError('[merge] register_window 失败:', e));
   }, [isDetached]);
 
@@ -254,7 +254,7 @@ function App() {
 
   // 注册主窗口到 window_enhance 插件，启用自定义标题栏
   useEffect(() => {
-    invoke('register_window', { label: 'main', kind: 'Main' })
+    invoke('register_window', { label: 'main', behaviors: ['nchittest'] })
       .catch(e => logError('[window_enhance] 主窗口注册失败:', e));
   }, []);
 
