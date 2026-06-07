@@ -1,0 +1,7 @@
+[package]
+name = "mem-buffer"
+version = "0.1.0"
+edition = "2021"
+description = "环形内存缓冲区 — 实现 std::io::Write + Read，用于 Lua print() 输出捕获"
+
+[dependencies]

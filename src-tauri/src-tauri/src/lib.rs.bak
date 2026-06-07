@@ -1,4 +1,10 @@
-use std::cell::RefCell;
+//! Solver 应用后端入口 — Tauri command 注册 + 应用启动
+//!
+//! # task-004 v2 变更
+//! - R5: lua_exec 中调用 read_lua_permission() → state.update_permission() 传入工作线程
+//! - R6: cmdv_export command 已移除（导出改为纯前端 + Sidebar 右键菜单）
+//! - R9: AnyCliBackend 替代 VmManager 直接作为 Tauri State
+
 use std::collections::HashMap;
 use std::sync::{LazyLock, Mutex};
 use log_system::init_logging;
@@ -9,21 +15,19 @@ use serde::Serialize;
 use env_system as env;
 use init_system;
 use anyhow::Error;
-use lua_runtime::VmManager;
 
 use tauri_plugin_window_enhance::{
     HookBehaviors, NoopWindowBehavior, WindowBehavior, WindowManager,
 };
 
-/// 前端通知注册窗口（Hook 注入模式）。
-///
-/// 前端传递 `behaviors` 字符串数组声明兴趣（如 `["nchittest", "drag_end"]`），
-/// 后端解析为 `HookBehaviors` bitflags 并注入对应的消息处理器。
+// ═══════════════════════════════════════════════════════════════════
+// register_window — API 嵌入（避免模块边界问题）
+// ═══════════════════════════════════════════════════════════════════
+
 #[command]
 fn register_window(app: tauri::AppHandle, label: String, behaviors: Vec<String>) {
     use tauri_plugin_window_enhance::commands;
 
-    // 解析字符串 → bitflags
     let mut flags = HookBehaviors::empty();
     for b in &behaviors {
         match b.as_str() {
@@ -72,18 +76,16 @@ fn register_window(app: tauri::AppHandle, label: String, behaviors: Vec<String>)
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// 业务常量（从插件层移出 — R3）
+// 业务常量
 // ═══════════════════════════════════════════════════════════════════
 
-/// Nav 区域在窗口客户区中的 CSS 像素范围（从窗口顶部算起）。
-const NAV_TOP_CSS_PX: f64 = 124.0;
-const NAV_BOTTOM_CSS_PX: f64 = 188.0;
+const NAV_TOP_CSS_PX: f64 = 60.0;
+const NAV_BOTTOM_CSS_PX: f64 = 124.0;
 
 // ═══════════════════════════════════════════════════════════════════
 // 消息处理器：分离窗口（拖拽合并检测）
 // ═══════════════════════════════════════════════════════════════════
 
-/// 分离窗口的消息处理器：标题栏命中测试 + 拖拽合并检测。
 struct DetachedWindowBehavior {
     app_handle: tauri::AppHandle,
 }
@@ -103,7 +105,6 @@ impl WindowBehavior for DetachedWindowBehavior {
     fn on_drag_end(&self, _hwnd: isize) -> Result<(), tauri_plugin_window_enhance::BehaviorError> {
         let manager = WindowManager::global();
 
-        // 1. 获取光标屏幕坐标
         let cursor_screen = match manager.cursor_position() {
             Some(pt) => pt,
             None => {
@@ -112,7 +113,6 @@ impl WindowBehavior for DetachedWindowBehavior {
             }
         };
 
-        // 2. 找到主窗口 HWND
         let main_hwnd = manager.find_first_hwnd_by(|state| {
             state.behaviors == HookBehaviors::NCHITTEST
         });
@@ -122,16 +122,10 @@ impl WindowBehavior for DetachedWindowBehavior {
             return Ok(());
         }
 
-        // 3. 获取 DPI 缩放比
         let scale = manager.dpr();
-
-        // 4. 光标屏幕坐标 → 主窗口客户区坐标
         let cursor_client = manager.screen_to_client(main_hwnd, cursor_screen);
-
-        // 5. 获取主窗口客户区尺寸
         let client_rect = manager.client_rect(main_hwnd);
 
-        // 6. Nav 区域命中测试
         let cursor_in_nav = check_cursor_in_nav(
             cursor_client.x,
             cursor_client.y,
@@ -163,7 +157,6 @@ impl WindowBehavior for DetachedWindowBehavior {
     }
 }
 
-/// 判断客户区坐标是否落在主窗口的 Nav 区域内 — **纯函数**。
 fn check_cursor_in_nav(
     cursor_x: i32,
     cursor_y: i32,
@@ -179,16 +172,31 @@ fn check_cursor_in_nav(
         && cursor_y <= nav_bottom
 }
 
-mod config;
+// ═══════════════════════════════════════════════════════════════════
+// 模块声明
+// ═══════════════════════════════════════════════════════════════════
 
-/// 分离窗口路由状态表（label → route）
+mod config;
+mod cli;
+
+use cli::AnyCliBackend;
+use cli_backend::CliBackend;
+use lua_runtime::{LuaExecResult, LuaPermission};
+
+// ═══════════════════════════════════════════════════════════════════
+// 全局状态
+// ═══════════════════════════════════════════════════════════════════
+
 static DETACH_ROUTES: LazyLock<Mutex<HashMap<String, String>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
+
+// ═══════════════════════════════════════════════════════════════════
+// 响应结构体
+// ═══════════════════════════════════════════════════════════════════
 
 #[derive(Clone, Serialize)]
 struct RunScriptResponse {
     run_path: String,
-    /// "cached" = 已有结果直接显示, "running" = 后台执行中
     status: String,
 }
 
@@ -198,6 +206,10 @@ struct ScriptResultPayload {
     stdout: String,
     stderr: String,
 }
+
+// ═══════════════════════════════════════════════════════════════════
+// Python 脚本命令
+// ═══════════════════════════════════════════════════════════════════
 
 #[command]
 fn save_script(code: String, path: String) -> Result<(), AppError> {
@@ -210,7 +222,6 @@ fn save_script(code: String, path: String) -> Result<(), AppError> {
 async fn run_script(path: String) -> Result<RunScriptResponse, AppError> {
     use sha2::{Sha256, Digest};
 
-    // ── 1. 读取脚本内容 + 版本号 + 计算哈希 ──
     let (content, script_version) = if env::vfs_path::is_vfs(std::path::Path::new(&path)) {
         let mut vf = vfs::VirFile::open(&path)
             .map_err(|e| AppError::Io(e))
@@ -235,13 +246,11 @@ async fn run_script(path: String) -> Result<RunScriptResponse, AppError> {
 
     let script_name = std::path::Path::new(&path)
         .file_name().and_then(|n| n.to_str()).unwrap_or("unnamed");
-    // 提取卷名，区分 C 盘 / B 盘同名脚本
     let volume = env::vfs_volume(std::path::Path::new(&path)).unwrap_or_else(|| "C".to_string());
     let run_name = format!("{}.run", script_name);
     let run_dir = format!("(vfs)/{}/运行记录", volume);
     let run_path = format!("{}/{}", run_dir, run_name);
 
-    // ── 2. 去重查询（JSON 解析，非字符串 contains）──
     let linked_pattern = format!("%\"script_hash\":\"{}\"%", script_hash);
     {
         let candidates = vfs::query_run_nodes_by_linked(&linked_pattern)
@@ -260,7 +269,6 @@ async fn run_script(path: String) -> Result<RunScriptResponse, AppError> {
             }
         }
 
-        // 部分匹配：哈希相同，复用 BLOB
         if let Some(src) = candidates.first() {
             if let (Some(off), Some(sz), Some(ref ch)) =
                 (src.storage_offset, src.size, &src.content_hash)
@@ -280,7 +288,6 @@ async fn run_script(path: String) -> Result<RunScriptResponse, AppError> {
         }
     }
 
-    // ── 3. 无缓存 → 创建空节点 + 后台执行 ──
     let lf = serde_json::json!({
         "script_hash": &script_hash,
         "script_path": &path,
@@ -290,7 +297,6 @@ async fn run_script(path: String) -> Result<RunScriptResponse, AppError> {
     vfs::VirFile::create_run_node(&run_name, &lf, &volume, &run_dir)
         .map_err(|e| AppError::Io(e))?;
 
-    // 提取到临时文件
     let ext = std::path::Path::new(&path)
         .extension().and_then(|e| e.to_str()).unwrap_or("py");
     let tmp_path = std::env::temp_dir().join(format!(
@@ -307,7 +313,6 @@ async fn run_script(path: String) -> Result<RunScriptResponse, AppError> {
     let run_path_clone = run_path.clone();
     let path_clone = path.clone();
 
-    // 后台执行
     python_bridge::begin_run(&run_path);
     tauri::async_runtime::spawn(async move {
         let result = python_bridge::run_script(&tmp_path.to_string_lossy()).await;
@@ -354,9 +359,13 @@ fn read_script(path: String) -> Result<String, AppError> {
         .inspect_log("read_script failed")
 }
 
+// ═══════════════════════════════════════════════════════════════════
+// VFS 命令
+// ═══════════════════════════════════════════════════════════════════
+
 #[command]
 fn vfs_read(path: String) -> Result<String, AppError> {
-    let mut f = vfs::VirFile::open(&path)   // ← open，不是 create
+    let mut f = vfs::VirFile::open(&path)
         .map_err(|e| AppError::Io(e))
         .inspect_log("打开文件失败")?;
     let mut content = String::new();
@@ -368,7 +377,6 @@ fn vfs_read(path: String) -> Result<String, AppError> {
 
 #[command]
 fn vfs_write(path: String, content: String) -> Result<(), AppError> {
-    // 先尝试打开已有文件；不存在则创建（避免直接 create 导致 UNIQUE 冲突）
     let mut f = match vfs::VirFile::open(&path) {
         Ok(f) => f,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
@@ -383,6 +391,7 @@ fn vfs_write(path: String, content: String) -> Result<(), AppError> {
         .inspect_log("写入文件失败")?;
     Ok(())
 }
+
 #[command]
 fn vfs_list_dir(path: String) -> Result<Vec<vfs::VfsNodeInfo>, AppError> {
     vfs::VirFile::list_children(&path)
@@ -402,7 +411,6 @@ fn vfs_delete(path: String) -> Result<(), AppError> {
     let volume = env::vfs_volume(std::path::Path::new(&path)).unwrap_or_else(|| "C".to_string());
     let is_real = vfs::is_real_volume(&volume);
 
-    // 如果是 .py 文件，级联删除对应卷中的 .run 文件
     if path.ends_with(".py") {
         if let Some(name) = std::path::Path::new(&path).file_name().and_then(|n| n.to_str()) {
             let run_path = format!("(vfs)/{}/运行记录/{}.run", volume, name);
@@ -434,7 +442,6 @@ fn vfs_rename(path: String, new_name: String) -> Result<(), AppError> {
         .map_err(|e| AppError::Io(e))
         .inspect_log("重命名失败")?;
 
-    // 级联重命名 .run 文件
     if old_name.ends_with(".py") {
         let volume = env::vfs_volume(std::path::Path::new(&path)).unwrap_or_else(|| "C".to_string());
         let old_run = format!("(vfs)/{}/运行记录/{}.run", volume, old_name);
@@ -458,6 +465,10 @@ fn vfs_set_version(path: String, new_version: String) -> Result<(), AppError> {
         .inspect_log("设置版本号失败")
 }
 
+// ═══════════════════════════════════════════════════════════════════
+// 窗口分离/合并命令
+// ═══════════════════════════════════════════════════════════════════
+
 #[command]
 async fn detach_window(app: tauri::AppHandle, url_path: String, title: String) -> Result<String, AppError> {
     let label = format!("detached-{}", uuid::Uuid::new_v4().to_string().replace('-', "_"));
@@ -475,7 +486,6 @@ async fn detach_window(app: tauri::AppHandle, url_path: String, title: String) -
     Ok(label)
 }
 
-/// 获取当前分离窗口的目标路由（窗口查询并消费）
 #[command]
 fn get_detach_route(window: tauri::Window) -> Result<String, AppError> {
     let label = window.label().to_string();
@@ -484,7 +494,6 @@ fn get_detach_route(window: tauri::Window) -> Result<String, AppError> {
         .ok_or_else(|| AppError::Other(anyhow::Error::msg("无分离路由")))
 }
 
-/// 分离窗口请求合并回主窗口（转发事件）
 #[command]
 fn emit_merge_request(path: String, label: String, icon: String) -> Result<(), AppError> {
     log::info!("[merge] 收到合并请求: path={}", path);
@@ -499,11 +508,23 @@ fn emit_merge_request(path: String, label: String, icon: String) -> Result<(), A
     Ok(())
 }
 
+// ═══════════════════════════════════════════════════════════════════
+// VFS 管理命令
+// ═══════════════════════════════════════════════════════════════════
+
 #[command]
 fn vfs_create_dir(path: String) -> Result<(), AppError> {
     vfs::VirFile::create_dir(&path)
         .map_err(|e| AppError::Io(e))
         .inspect_log("创建目录失败")
+}
+
+#[derive(Clone, Serialize)]
+struct VfsInfo {
+    c_exists: bool,
+    c_used: u64,
+    c_total: u64,
+    c_node_count: u64,
 }
 
 #[command]
@@ -517,7 +538,7 @@ fn vfs_info() -> Result<VfsInfo, AppError> {
         vec![]
     };
     let used = c_children.iter().filter_map(|n| n.size).sum::<u64>();
-    
+
     Ok(VfsInfo {
         c_exists,
         c_used: used,
@@ -557,7 +578,6 @@ fn vfs_read_version(path: String, content_hash: String) -> Result<String, AppErr
         .inspect_log("解码历史版本 UTF-8 失败")
 }
 
-/// 同步 A/B 盘（扫描真实目录 → 更新 DB）
 #[command]
 fn sync_vault() -> Result<String, AppError> {
     let pool = &vfs::get_vfs().db_pool;
@@ -568,7 +588,6 @@ fn sync_vault() -> Result<String, AppError> {
     Ok("同步完成".to_string())
 }
 
-/// 获取指定卷的状态信息
 #[derive(Clone, Serialize)]
 struct VolumeInfo {
     volume: String,
@@ -582,7 +601,7 @@ fn get_volume_info(volume: String) -> Result<VolumeInfo, AppError> {
     let vfs = vfs::get_vfs();
     let conn = vfs.db_pool.get()
         .map_err(|e| AppError::Other(anyhow::Error::from(e)))?;
-    
+
     let is_real = vfs::is_real_volume(&volume);
     let node_count: i64 = conn
         .query_row(
@@ -591,9 +610,8 @@ fn get_volume_info(volume: String) -> Result<VolumeInfo, AppError> {
             |row| row.get(0),
         )
         .unwrap_or(0);
-    
+
     let total_size = if is_real {
-        // 真实卷：仅计算直接文件大小（不递归子目录）
         let dir = match volume.as_str() {
             "A" => env_system::imports_dir(),
             "B" => env_system::vault_dir(),
@@ -601,7 +619,6 @@ fn get_volume_info(volume: String) -> Result<VolumeInfo, AppError> {
         };
         flat_dir_size(&dir).unwrap_or(0)
     } else {
-        // C 盘：从 DB 汇总
         let size: i64 = conn
             .query_row(
                 "SELECT COALESCE(SUM(size), 0) FROM nodes WHERE volume=? AND deleted=0 AND size IS NOT NULL",
@@ -611,9 +628,119 @@ fn get_volume_info(volume: String) -> Result<VolumeInfo, AppError> {
             .unwrap_or(0);
         size as u64
     };
-    
+
     Ok(VolumeInfo { volume, node_count: node_count as u64, total_size, is_real })
 }
+
+// ═══════════════════════════════════════════════════════════════════
+// Lua 控制台 Tauri Commands（v5：R5 权限传播 + R9 CliBackend trait）
+// ═══════════════════════════════════════════════════════════════════
+
+/// 读取当前保存的 Lua 权限等级
+fn read_lua_permission() -> LuaPermission {
+    match config::read_settings() {
+        Ok(s) => LuaPermission::from_str(&s.lua_permission),
+        Err(e) => {
+            log::warn!("[lua] 读取 Lua 权限配置失败，使用默认 user 模式: {}", e);
+            LuaPermission::User
+        }
+    }
+}
+
+/// 在指定标签页的 CLI 后端中执行代码。
+///
+/// R5 修复：每次执行前从配置文件读取权限并同步到工作线程，
+/// 确保配置变更即时生效，而非使用工作线程启动时的硬编码值。
+/// R13：检测输入请求并向前端发射事件。
+#[command]
+fn lua_exec(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AnyCliBackend>,
+    tabId: String,
+    code: String,
+) -> Result<LuaExecResult, String> {
+    // R5: 同步权限到工作线程（解决 v1 硬编码 User 的问题）
+    let permission = read_lua_permission();
+    state.update_permission(permission.as_str())?;
+
+    let cli_result = state.exec(&tabId, &code).map_err(|e| {
+        log::error!("[lua_exec] 执行失败 (tab={}): {}", tabId, e);
+        format!("执行失败: {}", e)
+    })?;
+
+    // R13：轮询工作线程的输入请求，向前端发射事件
+    let pending = state.drain_input_requests();
+    for tid in pending {
+        let payload = serde_json::json!({ "tab_id": tid, "prompt": "请输入:" });
+        let _ = app.emit("lua-input-request", payload);
+    }
+
+    Ok(LuaExecResult {
+        output: cli_result.output,
+        exit_code: cli_result.exit_code,
+        is_waiting_input: cli_result.is_waiting_input,
+    })
+}
+
+/// 向等待输入的 VM 发送数据。绕过工作线程主队列。
+#[command]
+fn lua_send_input(
+    state: tauri::State<'_, AnyCliBackend>,
+    tabId: String,
+    input: String,
+) {
+    state.send_input(&tabId, &input);
+}
+
+/// 中断正在执行的代码。
+#[command]
+fn lua_interrupt(
+    state: tauri::State<'_, AnyCliBackend>,
+    tabId: String,
+) -> Result<(), String> {
+    state.interrupt(&tabId).map_err(|e| {
+        log::error!("[lua_interrupt] 中断失败 (tab={}): {}", tabId, e);
+        format!("中断失败: {}", e)
+    })
+}
+
+/// 读取 MemBuffer 指定范围 [start, end)。
+#[command]
+fn mem_buffer_read(
+    state: tauri::State<'_, AnyCliBackend>,
+    tabId: String,
+    start: usize,
+    end: usize,
+) -> Result<String, String> {
+    if end <= start {
+        return Ok(String::new());
+    }
+    state.get_output_range(&tabId, start, end)
+}
+
+/// 增量读取 MemBuffer：自 cursor 之后的新数据（零拷贝）。
+#[command]
+fn mem_buffer_read_since(
+    state: tauri::State<'_, AnyCliBackend>,
+    tabId: String,
+    cursor: usize,
+) -> Result<serde_json::Value, String> {
+    let (data, new_cursor) = state.get_output_since(&tabId, cursor)?;
+    Ok(serde_json::json!({ "data": data, "cursor": new_cursor }))
+}
+
+/// 获取 MemBuffer 全部内容。
+#[command]
+fn mem_buffer_get_all(
+    state: tauri::State<'_, AnyCliBackend>,
+    tabId: String,
+) -> Result<String, String> {
+    state.get_output(&tabId)
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// 应用级命令
+// ═══════════════════════════════════════════════════════════════════
 
 fn flat_dir_size(path: &std::path::Path) -> std::io::Result<u64> {
     let mut total = 0u64;
@@ -628,249 +755,66 @@ fn flat_dir_size(path: &std::path::Path) -> std::io::Result<u64> {
     Ok(total)
 }
 
-/// 应用启动完成（前端可监听此事件刷新状态）
 #[command]
 fn app_ready(_app: tauri::AppHandle) {
     emit!("app-ready": serde_json::json!({}));
     log::info!("[app] 应用启动完成事件已发送");
 }
 
-/// 前端挂载完成 → 进度 100%
 #[command]
 fn frontend_ready() {
     init_system::set_ready();
 }
 
-#[command]
-fn get_loading_status() -> init_system::LoadingStatus {
-    init_system::get_loading_status()
-}
-#[command]
-fn get_vault_path() -> Result<String, AppError> {
-    Ok(env_system::vault_dir().to_string_lossy().to_string())
-}
-
-/// 导入文件到 A 盘（只读）
-#[command]
-async fn import_to_a(app: tauri::AppHandle) -> Result<String, AppError> {
-    use tauri_plugin_dialog::DialogExt;
-    let path = app
-        .dialog()
-        .file()
-        .blocking_pick_file();
-    let Some(file_path) = path else {
-        return Err(AppError::Other(anyhow::Error::msg("未选择文件")));
-    };
-    let src = file_path.to_string();
-    let name = std::path::Path::new(&src)
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("imported_file");
-    let dest = env_system::imports_dir().join(name);
-    std::fs::create_dir_all(env_system::imports_dir())
-        .map_err(|e| AppError::Io(e))?;
-    std::fs::copy(&src, &dest)
-        .map_err(|e| AppError::Io(e))?;
-    // 同步到 DB
-    let pool = &vfs::get_vfs().db_pool;
-    vfs::real_fs::sync_real_volume(pool, "A")
-        .map_err(|e| AppError::Io(e))?;
-    let vfs_path = format!("(vfs)/A/{}", name);
-    log::info!("[import_to_a] 导入完成: {} → {}", src, vfs_path);
-    Ok(vfs_path)
-}
-
-#[derive(Clone, Serialize)]
-struct VfsInfo {
-    c_exists: bool,
-    c_used: u64,
-    c_total: u64,
-    c_node_count: u64,
-}
-
 // ═══════════════════════════════════════════════════════════════════
-// Lua Console Commands (v3: worker thread + R13 events)
+// 应用启动入口
 // ═══════════════════════════════════════════════════════════════════
-
-#[command]
-fn lua_exec(_app: tauri::AppHandle, state: tauri::State<'_, VmManager>, tabId: String, code: String) -> Result<serde_json::Value, String> {
-    let result = state.exec(&tabId, &code)?;
-    // R13: input request events — requires input_requests field on VmManager (future)
-    Ok(serde_json::json!({"output": result.output, "exitCode": result.exit_code, "isWaitingInput": result.is_waiting_input}))
-}
-
-#[command]
-fn lua_send_input(state: tauri::State<'_, VmManager>, tabId: String, input: String) {
-    state.send_input(&tabId, &input);
-}
-
-#[command]
-fn lua_interrupt(state: tauri::State<'_, VmManager>, tabId: String) {
-    let _ = state.interrupt(&tabId);
-}
-
-#[command]
-fn mem_buffer_read(state: tauri::State<'_, VmManager>, tabId: String, start: usize, end: usize) -> Result<String, String> {
-    if end <= start { return Ok(String::new()); }
-    state.get_output_range(&tabId, start, end)
-}
-
-#[command]
-fn mem_buffer_read_since(state: tauri::State<'_, VmManager>, tabId: String, cursor: usize) -> Result<serde_json::Value, String> {
-    let (data, new_cursor) = state.get_output_since(&tabId, cursor)?;
-    Ok(serde_json::json!({"data": data, "cursor": new_cursor}))
-}
-
-#[command]
-fn mem_buffer_get_all(state: tauri::State<'_, VmManager>, tabId: String) -> Result<String, String> {
-    state.get_output(&tabId)
-}
-
-#[command]
-async fn cmdv_export(app: tauri::AppHandle, state: tauri::State<'_, VmManager>, tabId: String, format: String) -> Result<(), String> {
-    use tauri_plugin_dialog::DialogExt;
-    let output = state.get_output(&tabId).unwrap_or_default();
-    let (content, ext) = match format.as_str() {
-        "html" => (format!("<!DOCTYPE html>\n<html><head><meta charset=\"UTF-8\"><title>Solver Console Export</title></head><body style=\"background:#1e1e1e;color:#ccc;font-family:monospace;padding:16px;white-space:pre-wrap\"><pre>{}</pre></body></html>", html_escape(&output)), "html"),
-        "md" => (format!("# Solver Console Export\n\n```\n{}\n```\n", output), "md"),
-        "txt" => (output, "txt"),
-        _ => return Err(format!("Unsupported format: {}", format)),
-    };
-    let path = app.dialog().file().add_filter(&format!("{} File", ext.to_uppercase()), &[ext]).blocking_save_file();
-    if let Some(p) = path { std::fs::write(p.to_string(), &content).map_err(|e| format!("Write error: {}", e))?; }
-    Ok(())
-}
-
-fn html_escape(s: &str) -> String { s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;") }
-
-/// 发送加载进度事件
-fn emit_loading(pct: u32, msg: &str) {
-    init_system::set_progress(pct, msg);
-    // 同时通过事件系统发送（供 React 端监听 app-ready）
-    if let Some(handle) = event_system::GLOBAL_APPHANDLE.get() {
-        let _ = tauri::Emitter::emit(handle, "loading-progress", serde_json::json!({
-            "pct": pct,
-            "msg": msg,
-        }));
-    }
-}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    eprintln!("[MAIN] 初始化日志系统...");
-    emit_loading(5, "初始化日志...");
-    let (log_ctrl, log_handle) =
-        init_logging(env::log_dir(), env::log_dir(), 4096).expect("初始化日志失败");
+    init_logging();
 
-    let mut l_c = Some(log_ctrl);
-    log::info!("日志系统已初始化，准备启动 Tauri 应用...");
-
-    eprintln!("[MAIN] 初始化 VFS...");
-    // 确保数据目录存在（避免后续写入失败）
-    std::fs::create_dir_all(env::app_data_dir()).unwrap_or_else(|e| {
-        eprintln!("[MAIN] 创建数据目录失败: {}", e);
-    });
-    std::fs::create_dir_all(env::config_dir()).unwrap_or_else(|e| {
-        eprintln!("[MAIN] 创建配置目录失败: {}", e);
-    });
-    std::fs::create_dir_all(env::vault_dir()).unwrap_or_else(|e| {
-        eprintln!("[MAIN] 创建资料目录失败: {}", e);
-    });
-    eprintln!("[MAIN] 数据目录: {}", env::app_data_dir().display());
-    emit_loading(10, "正在初始化 VFS...");
-    vfs::init_vfs(
-        &env::database_path(),
-        &[("C", 64 * 1024 * 1024), ("B", 64 * 1024 * 1024), ("A", 64 * 1024 * 1024)],
-    )
-    .expect("VFS 初始化失败");
-    emit_loading(25, "VFS 就绪");
-    eprintln!("[MAIN] VFS 初始化完成");
-
-    // 同步 A/B 盘（真实文件 → DB）
-    for (i, vol) in ["A", "B"].iter().enumerate() {
-        emit_loading(30 + i as u32 * 20, &format!("同步 {} 盘...", vol));
-        if let Err(e) = vfs::real_fs::sync_real_volume(&vfs::get_vfs().db_pool, vol) {
-            eprintln!("[MAIN] {}盘同步失败: {}", vol, e);
-        } else {
-            eprintln!("[MAIN] {}盘同步完成", vol);
-        }
-    }
-    emit_loading(70, "磁盘就绪");
+    // R9: 使用 AnyCliBackend 替代 VmManager 作为 Tauri State
+    let cli_backend = AnyCliBackend::new_lua();
 
     tauri::Builder::default()
-        .manage(log_handle.clone())
-        .manage(VmManager::new())
-        .plugin(tauri_plugin_window_enhance::init())
-        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_log::Builder::default()
-            .skip_logger()
-            .level(tauri_plugin_log::log::LevelFilter::Debug)
-            .targets([tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Webview)])
-            .build()
-        )
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_window_enhance::init())
+        .manage(cli_backend)
         .invoke_handler(tauri::generate_handler![
-            run_script,
+            register_window,
             save_script,
+            run_script,
             read_script,
-            vfs_write,
             vfs_read,
+            vfs_write,
             vfs_list_dir,
             vfs_exists,
             vfs_delete,
-            vfs_create_dir,
             vfs_rename,
             vfs_set_version,
-            detach_window,
-            emit_merge_request,
-            get_detach_route,
+            vfs_create_dir,
             vfs_info,
             vfs_list_versions,
             vfs_read_version,
-            config::read_settings,
-            config::write_settings,
-            config::reset_settings,
             sync_vault,
-            get_vault_path,
-            import_to_a,
             get_volume_info,
-            app_ready,
-            get_loading_status,
-            frontend_ready,
-            register_window,
+            detach_window,
+            get_detach_route,
+            emit_merge_request,
             lua_exec,
             lua_send_input,
             lua_interrupt,
             mem_buffer_read,
             mem_buffer_read_since,
             mem_buffer_get_all,
-            cmdv_export,
+            config::read_settings,
+            config::write_settings,
+            config::reset_settings,
+            app_ready,
+            frontend_ready,
         ])
-        .setup(move |app| {
-            emit_loading(80, "启动引擎...");
-            init_event_system(app.handle().clone()).unwrap_log();
-            emit_loading(90, "加载界面...");
-
-            let window = app.get_webview_window("main").expect("获取窗口句柄失败");
-            let log_ctrl = RefCell::new(l_c.take().expect("LogCtrl 已经被使用过了"));
-            
-            window.on_window_event(move |event| {
-                if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                    api.prevent_close();
-                    log_ctrl.borrow_mut().shutdown();
-                    std::process::exit(0);
-                }
-            });
-
-            // 通知前端应用就绪
-            let handle = app.handle().clone();
-            tauri::async_runtime::spawn(async move {
-                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-                let _ = tauri::Emitter::emit(&handle, "app-ready", serde_json::json!({}));
-                log::info!("[app] 启动完成事件已发送");
-            });
-            Ok(())
-        })
         .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .expect("启动应用失败");
 }

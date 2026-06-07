@@ -3,7 +3,7 @@ name: implementer-c
 description: 以架构优雅和可读性为第一优先级的代码实现者，擅长设计模式、清晰抽象、整洁代码和可维护架构
 target: vscode
 disable-model-invocation: false
-tools: [vscode/memory, vscode/askQuestions, execute, read, edit/createDirectory, edit/createFile, edit/editFiles, edit/rename, search, web, browser, 'io.github.upstash/context7/*']
+tools: [vscode/memory, vscode/askQuestions, execute, read, edit/createDirectory, edit/createFile, edit/editFiles, edit/rename, search, web, browser, 'io.github.upstash/context7/*', 'ast-read-tools/*']
 agents: []
 ---
 

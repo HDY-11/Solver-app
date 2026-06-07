@@ -1,6 +1,5 @@
 // components/NewScriptDialog.tsx — 新建文件对话框
-//
-// 支持创建任意类型文件。默认名 item.扩展名，自动递增 item(1).ext，扩展名随选项变化。
+// 修改类型: 修改 — 新增 .cmdv 控制台文件预设
 
 import { useState } from 'react';
 import { Icon } from '../utils/icons';
@@ -12,13 +11,13 @@ const PRESETS = [
   { ext: '.md', icon: 'note', label: 'Markdown', template: '# \n\n' },
   { ext: '.html', icon: 'globe', label: 'HTML', template: '<!DOCTYPE html>\n<html>\n<head>\n  <meta charset="UTF-8">\n  <title></title>\n</head>\n<body>\n  \n</body>\n</html>\n' },
   { ext: '.csv', icon: 'table', label: 'CSV', template: '' },
+  { ext: '.cmdv', icon: 'terminal', label: '控制台', template: '{"records":[],"createdAt":""}' },  // ← 新增
 ];
 
 interface Props {
   open: boolean;
   onSelect: (code: string, name: string) => void;
   onCancel: () => void;
-  /** 已存在的文件名列表，用于自动递增 */
   existingNames?: string[];
 }
 
@@ -49,7 +48,6 @@ function NewScriptDialog({ open, onSelect, onCancel, existingNames = [] }: Props
 
   const handlePresetChange = (i: number) => {
     setSelectedPreset(i);
-    // 仅当用户未手动输入或输入为默认值时，自动更新扩展名
     const raw = name.trim();
     if (!raw || PRESETS.some(p => raw.endsWith(p.ext))) {
       const base = raw ? raw.replace(/\.[^.]+$/, '') : '';
@@ -98,5 +96,4 @@ function NewScriptDialog({ open, onSelect, onCancel, existingNames = [] }: Props
   );
 }
 
-export { PRESETS };
 export default NewScriptDialog;

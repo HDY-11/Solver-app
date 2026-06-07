@@ -1,5 +1,7 @@
 // utils/icons.tsx — FontAwesome 图标统一映射（文本名称）
-// 所有组件用语义化名称引用图标，如 icon="folder"、icon="python"
+// 修改类型: 修改 — 新增 terminal 图标
+//
+// 在所有 iconMap 条目中添加 terminal 图标
 
 import {
   faFolder, faFolderPlus, faFile, faFilePen, faRotate,
@@ -13,6 +15,7 @@ import {
   faCircleCheck, faCircleXmark, faTriangleExclamation, faCircleInfo,
   faCircle, faCheck, faSpinner, faRotateLeft,
   faSun, faMoon, faSatelliteDish, faEye, faCode,
+  faTerminal,  // ← 新增
   type IconDefinition,
 } from '@fortawesome/free-solid-svg-icons';
 import { faPython } from '@fortawesome/free-brands-svg-icons';
@@ -67,6 +70,7 @@ const iconMap: Record<string, IconDefinition> = {
   signal:         faSatelliteDish,
   eye:            faEye,
   code:           faCode,
+  terminal:       faTerminal,  // ← 新增
 };
 
 /** 根据文本名称获取 FA 图标定义（未知回退为 faFile） */
@@ -98,6 +102,9 @@ export {
   faMinus, faXmark, faWindowMaximize, faSquare,
   faTableList, faGear, faCircleQuestion,
   faChevronRight, faChevronDown, faChevronLeft, faHouse,
-  faPlay, faPlus, faThumbtack, faPython, faDownload,
+  faPlay, faPython, faPlus, faThumbtack, faDownload,
+  faCircle, faCheck, faSpinner, faRotateLeft,
+  faSun, faMoon, faSatelliteDish, faEye, faCode,
+  faCircleCheck, faCircleXmark, faTriangleExclamation,
+  faCircleInfo, faTerminal,  // ← 新增
 };
-export { FontAwesomeIcon };

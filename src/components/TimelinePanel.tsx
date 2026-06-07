@@ -1,7 +1,12 @@
-// components/TimelinePanel.tsx — 版本时间线面板
+// components/TimelinePanel.tsx — 版本时间线面板（R7）
 //
 // 显示在 Sidebar 下半部分。自动随当前打开文件切换版本列表。
 // 点击版本条目可恢复历史版本内容。
+//
+// R7: 适配 .cmdv 文件版本历史。
+// - getCurrentPath 已正确处理 /app/cmdv/(vfs)/C/test.cmdv 格式 URL
+// - VFS 版本记录对所有 node_type 一视同仁（包括 node_type='run' 的 .cmdv）
+// - 恢复版本后发射 'vfs:file-changed' 事件通知编辑器刷新
 
 import { useState, useEffect, useCallback } from 'react';
 import { useLocation } from 'react-router-dom';
@@ -12,19 +17,24 @@ import { useToast } from '../hooks/useToast';
 import { fmtSize } from '../types';
 import type { VfsVersion } from '../types';
 
-/** 从 URL 解析当前文件的 VFS 路径 */
+/** 从 URL 解析当前文件的 VFS 路径。
+ *
+ *  URL 格式: /app/{renderer}/{encodedVfsPath}
+ *  示例: /app/cmdv/(vfs)/C/test.cmdv
+ *      → parts = ['app', 'cmdv', '(vfs)', 'C', 'test.cmdv']
+ *      → encoded = parts.slice(2).join('/') = '(vfs)/C/test.cmdv'
+ *      → decodeURIComponent → '(vfs)/C/test.cmdv'
+ */
 function getCurrentPath(pathname: string): string | null {
   const parts = pathname.split('/').filter(Boolean);
-  // /app/py/(vfs)/C/脚本/test.py → parts = ['app', 'py', '(vfs)', 'C', '脚本', 'test.py']
   if (parts.length >= 3 && parts[0] === 'app') {
-    // parts[1] 是 renderer 名, parts[2..] 是 VFS 路径的编码片段
     const encoded = parts.slice(2).join('/');
     try { return decodeURIComponent(encoded); } catch { return null; }
   }
   return null;
 }
 
-/** 截短哈希显示 */
+/** 截短哈希显示（前 8 位） */
 function shortHash(hash: string): string {
   return hash.slice(0, 8);
 }
@@ -35,7 +45,6 @@ function TimelinePanel() {
   const [versions, setVersions] = useState<VfsVersion[]>([]);
   const [loading, setLoading] = useState(false);
   const [restoring, setRestoring] = useState<string | null>(null);
-  // 当前活跃版本（编辑器中显示的那个），默认为最新
   const [activeHash, setActiveHash] = useState<string | null>(null);
 
   const currentPath = getCurrentPath(pathname);
@@ -51,7 +60,6 @@ function TimelinePanel() {
     listVersions(currentPath)
       .then((v) => {
         setVersions(v);
-        // 最新版本（列表第一个）即为当前活跃版本
         if (v.length > 0) setActiveHash(v[0].content_hash);
       })
       .catch((err) => {
@@ -107,7 +115,9 @@ function TimelinePanel() {
                 key={v.content_hash}
                 className={`timeline-item ${isActive ? 'timeline-item--latest' : ''}`}
               >
-                <span className="timeline-item__dot"><Icon icon={isActive ? 'circle' : 'circle'} /></span>
+                <span className="timeline-item__dot">
+                  <Icon icon={isActive ? 'circle' : 'circle'} />
+                </span>
                 <div className="timeline-item__info">
                   <span className="timeline-item__time">
                     {v.created_at.replace('T', ' ').slice(0, 19)}

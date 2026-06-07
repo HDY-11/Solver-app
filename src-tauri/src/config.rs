@@ -1,7 +1,4 @@
-//! 应用配置模块
-//!
-//! 定义 `AppSettings` 结构并通过 `env_system::AppConfig` trait
-//! 持久化到 `settings.toml`。通过 Tauri 命令向前端暴露读写接口。
+//! 应用配置模块 — lua_permission（PowerShell 权限模型）
 
 use env_system::AppConfig;
 use serde::{Deserialize, Serialize};
@@ -17,12 +14,16 @@ pub struct AppSettings {
     pub tab_size: u32,
     #[serde(default = "default_auto_save")]
     pub auto_save: bool,
+    /// Lua 权限等级："admin" | "user"（默认 user）
+    #[serde(default = "default_lua_permission")]
+    pub lua_permission: String,
 }
 
 fn default_font_size() -> u32 { 14 }
 fn default_theme() -> String { "dark".into() }
 fn default_tab_size() -> u32 { 4 }
 fn default_auto_save() -> bool { true }
+fn default_lua_permission() -> String { "user".into() }
 
 impl Default for AppSettings {
     fn default() -> Self {
@@ -31,6 +32,7 @@ impl Default for AppSettings {
             theme: default_theme(),
             tab_size: default_tab_size(),
             auto_save: default_auto_save(),
+            lua_permission: default_lua_permission(),
         }
     }
 }

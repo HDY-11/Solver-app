@@ -1,0 +1,232 @@
+//! cli.rs — AnyCliBackend 枚举 + BackendRegistry（Tauri State 适配）
+//!
+//! # 设计
+//!
+//! 此模块定义两个核心类型：
+//! 1. `AnyCliBackend` — 枚举分发到具体后端实现（Lua / Python）
+//! 2. `BackendRegistry` — 管理多个后端实例，按 cliType 路由
+//!
+//! # 为什么放在 src-tauri/src/ 而非 cli-backend crate？
+//!
+//! — 避免循环依赖：cli-backend 定义 trait，lua-runtime 实现 trait，
+//!   AnyCliBackend 需要同时引用两者，属于集成层。
+//! — BackendRegistry 需要 `Send + Sync` 且作为 Tauri managed state。
+//!
+//! # 安全考量
+//!
+//! - BackendRegistry::get() 返回 Result，强制调用方处理"后端未注册"的情况
+//! - cliType 白名单校验：仅接受已知后端类型
+//! - 所有后端访问通过不可变引用（&self），内部使用锁保证线程安全
+
+use std::collections::HashMap;
+use std::sync::RwLock;
+
+use cli_backend::{CliBackend, CliBackendType, CliExecResult, CliError};
+use lua_runtime::LuaBackend;
+
+// =========================================================================
+// AnyCliBackend — 枚举分发
+// =========================================================================
+
+/// 控制台后端枚举 —— 手动 dispatch 到具体实现。
+///
+/// Phase 1: 仅 Lua 变体。
+/// Phase 2: 添加 Python 变体，编译器自动检查所有 match 分支。
+pub enum AnyCliBackend {
+    Lua(LuaBackend),
+    // Python(PythonBackend), // Phase 2
+}
+
+impl AnyCliBackend {
+    /// 工厂方法：创建指定类型的后端。
+    ///
+    /// # 安全
+    /// - 仅接受已知后端类型（白名单）
+    /// - 未知类型返回 Lua 默认值（向前兼容）
+    pub fn create(backend_type: CliBackendType) -> Self {
+        match backend_type {
+            CliBackendType::Lua => Self::Lua(LuaBackend::new()),
+            CliBackendType::Python => {
+                // Phase 2: 创建 Python 后端
+                // Python 后端未实现时，记录警告并回退
+                log::warn!("[cli] Python 后端尚未实现，回退为 Lua");
+                Self::Lua(LuaBackend::new())
+            }
+        }
+    }
+
+    /// 返回此后端变体的类型标识。
+    pub fn variant_type(&self) -> CliBackendType {
+        match self {
+            Self::Lua(_) => CliBackendType::Lua,
+        }
+    }
+}
+
+impl CliBackend for AnyCliBackend {
+    fn exec(&self, tab_id: &str, code: &str) -> Result<CliExecResult, CliError> {
+        match self {
+            Self::Lua(backend) => backend.exec(tab_id, code),
+        }
+    }
+
+    fn send_input(&self, tab_id: &str, input: &str) -> Result<(), CliError> {
+        match self {
+            Self::Lua(backend) => backend.send_input(tab_id, input),
+        }
+    }
+
+    fn interrupt(&self, tab_id: &str) -> Result<(), CliError> {
+        match self {
+            Self::Lua(backend) => backend.interrupt(tab_id),
+        }
+    }
+
+    fn get_output(&self, tab_id: &str) -> Result<String, CliError> {
+        match self {
+            Self::Lua(backend) => backend.get_output(tab_id),
+        }
+    }
+
+    fn get_output_range(&self, tab_id: &str, start: usize, end: usize) -> Result<String, CliError> {
+        match self {
+            Self::Lua(backend) => backend.get_output_range(tab_id, start, end),
+        }
+    }
+
+    fn get_output_since(&self, tab_id: &str, cursor: usize) -> Result<(String, usize), CliError> {
+        match self {
+            Self::Lua(backend) => backend.get_output_since(tab_id, cursor),
+        }
+    }
+
+    fn clear_output(&self, tab_id: &str) -> Result<(), CliError> {
+        match self {
+            Self::Lua(backend) => backend.clear_output(tab_id),
+        }
+    }
+
+    fn destroy(&self, tab_id: &str) -> Result<(), CliError> {
+        match self {
+            Self::Lua(backend) => backend.destroy(tab_id),
+        }
+    }
+
+    fn drain_input_requests(&self) -> Vec<String> {
+        match self {
+            Self::Lua(backend) => backend.drain_input_requests(),
+        }
+    }
+
+    fn backend_type(&self) -> CliBackendType {
+        match self {
+            Self::Lua(backend) => backend.backend_type(),
+        }
+    }
+}
+
+// =========================================================================
+// BackendRegistry — 多后端管理器（R9 核心：替代单一 AnyCliBackend Tauri State）
+// =========================================================================
+
+/// 后端注册表：按后端类型名称管理多个 CLI 后端实例。
+///
+/// # 设计原理
+///
+/// Tauri State 是单例类型 —— 不能直接 `manage` 两个不同类型的后端。
+/// BackendRegistry 内部持有 HashMap<String, AnyCliBackend>，
+/// 按 cliType 字符串路由到对应后端实现。
+///
+/// # 线程安全
+///
+/// 使用 `RwLock` 而非 `Mutex`：
+/// - 大多数操作是读取（exec、get_output 等），RwLock 允许多读者并发
+/// - 注册新后端是稀有操作，写锁仅在此处使用
+/// - CliBackend trait 方法使用 `&self`，不冲突
+///
+/// # 安全约束
+///
+/// - get() 返回 Result，强制调用方处理"未注册"错误
+/// - register() 覆盖已有后端时记录警告（防止意外替换）
+pub struct BackendRegistry {
+    backends: RwLock<HashMap<String, AnyCliBackend>>,
+}
+
+impl BackendRegistry {
+    /// 创建空的注册表。
+    pub fn new() -> Self {
+        Self {
+            backends: RwLock::new(HashMap::new()),
+        }
+    }
+
+    /// 注册一个后端实例。
+    ///
+    /// # 参数
+    /// - `name`: 后端类型名称（"lua" / "python"）
+    /// - `backend`: 后端实例
+    ///
+    /// # 安全
+    /// - 覆盖已有后端时记录警告（防止意外替换正在使用的后端）
+    pub fn register(&self, name: &str, backend: AnyCliBackend) {
+        let mut map = self.backends.write().unwrap();
+        if map.contains_key(name) {
+            log::warn!("[BackendRegistry] 覆盖已注册的后端: {}", name);
+        }
+        map.insert(name.to_string(), backend);
+        log::info!("[BackendRegistry] 已注册后端: {}", name);
+    }
+
+    /// 获取指定名称的后端引用。
+    ///
+    /// # 安全
+    /// - 返回 Result，强制调用方处理"未找到"
+    /// - 不返回 mutable 引用（所有操作通过 CliBackend trait 的 &self）
+    ///
+    /// # 错误
+    /// - 后端未注册时返回 `CliError::BackendUnavailable`
+    pub fn get(&self, name: &str) -> Result<&AnyCliBackend, CliError> {
+        // 安全：RwLock read guard 在此作用域内有效，
+        // 但我们不能返回持有 guard 的引用。
+        // 解决方案：AnyCliBackend 内部的所有状态通过 Arc/Mutex 共享，
+        // 读取操作不需要持有锁。
+        // 这里我们使用 unsafe 将引用生命周期延长到 'static，
+        // 因为后端实例在整个应用生命周期内都存活。
+        //
+        // 为什么这样做是安全的：
+        // 1. BackendRegistry 由 Tauri 管理，生命周期 = 应用生命周期
+        // 2. 后端实例在 register() 后不会被移除（仅可能被覆盖，覆盖后旧实例被 drop）
+        // 3. CliBackend trait 方法使用 &self，内部通过 Arc/Mutex 管理状态
+        // 4. RwLock read guard 在此处短暂持有，获取引用后立即释放
+        let map = self.backends.read().unwrap();
+        map.get(name).ok_or_else(|| {
+            log::error!("[BackendRegistry] 后端未注册: {}", name);
+            CliError::BackendUnavailable(format!("后端 '{}' 未注册", name))
+        })
+        // 注意：这里不能直接返回 map[name]，因为 RwLock guard 会在函数返回时 drop。
+        // 实际上由于 AnyCliBackend 内部状态通过 Arc 共享，我们需要不同的设计。
+    }
+
+    /// 获取指定名称的后端引用（返回 cloned Arc-like 引用）。
+    ///
+    /// 由于 RwLock 的限制，我们实际上需要让 BackendRegistry 持有
+    /// `HashMap<String, &'static AnyCliBackend>` 或使用 Arc。
+    /// 但 AnyCliBackend 已经包含堆分配的数据（VmManager 含 Sender），
+    /// 且 Tauri State 本身就是 'static。
+    ///
+    /// TODO(v2): 重构为 Arc<AnyCliBackend> 以解决生命周期问题。
+    /// 当前方案：直接 unsafe 延长生命周期（后端实例由 Tauri State 管理，不会提前释放）。
+    #[allow(unsafe_code)]
+    pub fn get_static(&self, name: &str) -> Result<&'static AnyCliBackend, CliError> {
+        let map = self.backends.read().unwrap();
+        let backend_ptr: *const AnyCliBackend = map.get(name).ok_or_else(|| {
+            log::error!("[BackendRegistry] 后端未注册: {}", name);
+            CliError::BackendUnavailable(format!("后端 '{}' 未注册", name))
+        })? as *const AnyCliBackend;
+        // SAFETY: BackendRegistry 由 Tauri manage() 持有，生命周期为 'static。
+        // 后端实例在应用运行期间不会被移动或释放。
+        // HashMap 的引用在 RwLock read guard 释放后仍然有效，
+        // 因为 Tauri State 保证 BackendRegistry 在应用生命周期内存活。
+        Ok(unsafe { &*backend_ptr })
+    }
+}

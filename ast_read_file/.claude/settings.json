@@ -1,0 +1,111 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "C:\\Program Files\\nodejs\\node.exe C:\\Users\\24070\\AppData\\Roaming\\npm\\node_modules\\token-pilot\\dist\\index.js hook-read"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "C:\\Program Files\\nodejs\\node.exe C:\\Users\\24070\\AppData\\Roaming\\npm\\node_modules\\token-pilot\\dist\\index.js hook-edit"
+          }
+        ]
+      },
+      {
+        "matcher": "MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "C:\\Program Files\\nodejs\\node.exe C:\\Users\\24070\\AppData\\Roaming\\npm\\node_modules\\token-pilot\\dist\\index.js hook-edit"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "C:\\Program Files\\nodejs\\node.exe C:\\Users\\24070\\AppData\\Roaming\\npm\\node_modules\\token-pilot\\dist\\index.js hook-pre-bash"
+          }
+        ]
+      },
+      {
+        "matcher": "Grep",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "C:\\Program Files\\nodejs\\node.exe C:\\Users\\24070\\AppData\\Roaming\\npm\\node_modules\\token-pilot\\dist\\index.js hook-pre-grep"
+          }
+        ]
+      },
+      {
+        "matcher": "Task",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "C:\\Program Files\\nodejs\\node.exe C:\\Users\\24070\\AppData\\Roaming\\npm\\node_modules\\token-pilot\\dist\\index.js hook-pre-task"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "C:\\Program Files\\nodejs\\node.exe C:\\Users\\24070\\AppData\\Roaming\\npm\\node_modules\\token-pilot\\dist\\index.js hook-bootstrap",
+            "once": true,
+            "statusMessage": "Bootstrapping token-pilot..."
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "C:\\Program Files\\nodejs\\node.exe C:\\Users\\24070\\AppData\\Roaming\\npm\\node_modules\\token-pilot\\dist\\index.js hook-session-start"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "C:\\Program Files\\nodejs\\node.exe C:\\Users\\24070\\AppData\\Roaming\\npm\\node_modules\\token-pilot\\dist\\index.js hook-post-bash",
+            "async": true
+          }
+        ]
+      },
+      {
+        "matcher": "Task",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "C:\\Program Files\\nodejs\\node.exe C:\\Users\\24070\\AppData\\Roaming\\npm\\node_modules\\token-pilot\\dist\\index.js hook-post-task"
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "C:\\Program Files\\nodejs\\node.exe C:\\Users\\24070\\AppData\\Roaming\\npm\\node_modules\\token-pilot\\dist\\index.js hook-subagent-stop"
+          }
+        ]
+      }
+    ]
+  }
+}

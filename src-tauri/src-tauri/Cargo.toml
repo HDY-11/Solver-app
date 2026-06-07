@@ -1,5 +1,5 @@
 [workspace]
-members = ["rust-libs/error-system", "rust-libs/log-system", "rust-libs/python-bridge", "rust-libs/utils",'rust-libs/simple_motion', "rupy-libs/shape3", "rust-libs/event-system", "rust-libs/env-system", "rust-libs/vfs", "rust-libs/init-system", "rust-libs/lua-runtime", "rust-libs/mem-buffer"]
+members = ["rust-libs/error-system", "rust-libs/log-system", "rust-libs/python-bridge", "rust-libs/utils",'rust-libs/simple_motion', "rupy-libs/shape3", "rust-libs/event-system", "rust-libs/env-system", "rust-libs/vfs", "rust-libs/init-system", "rust-libs/lua-runtime", "rust-libs/mem-buffer", "rust-libs/cli-backend"]
 
 
 [package]
@@ -48,6 +48,9 @@ chrono = "0.4.44"
 once_cell = "1.21.4"
 thiserror = "2.0.18"
 error-system = { path = "rust-libs/error-system" }
+cli-backend = { path = "rust-libs/cli-backend" }
+lua-runtime = { path = "rust-libs/lua-runtime" }
+mem-buffer = { path = "rust-libs/mem-buffer" }
 log-system = { path = "rust-libs/log-system" }
 tauri-plugin-log = "2"
 numpy = "0.28.0"
@@ -65,7 +68,6 @@ vfs = { version = "0.1.0", path = "rust-libs/vfs" }
 tauri-plugin-window-enhance = { path = "plugins/window_enhance" }
 env-system = { version = "0.1.0", path = "rust-libs/env-system" }
 init-system = { path = "rust-libs/init-system" }
-lua-runtime = { path = "rust-libs/lua-runtime" }
 rusqlite = { version = "0.39.0", features = ["bundled"] }
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

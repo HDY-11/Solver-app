@@ -24,6 +24,7 @@ import './renderers/PythonEditor';
 import './renderers/HtmlViewer';
 import './renderers/TextViewer';
 import './renderers/RunResult';
+import './renderers/ConsoleRenderer';
 import './panels/SettingPanel';
 
 import './App.css';

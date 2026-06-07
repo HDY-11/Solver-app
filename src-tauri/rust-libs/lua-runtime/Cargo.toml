@@ -1,0 +1,11 @@
+[package]
+name = "lua-runtime"
+version = "0.1.0"
+edition = "2021"
+description = "多实例 Lua 5.4 VM 管理器 — 专用工作线程 + 双通道架构，每标签页独立持久 VM"
+
+[dependencies]
+mlua = { version = "0.10", features = ["lua54", "vendored"] }
+mem-buffer = { path = "../mem-buffer" }
+serde = { version = "1", features = ["derive"] }
+log = "0.4"
