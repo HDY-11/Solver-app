@@ -1,5 +1,5 @@
 [workspace]
-members = ["rust-libs/error-system", "rust-libs/log-system", "rust-libs/python-bridge", "rust-libs/utils",'rust-libs/simple_motion', "rupy-libs/shape3", "rust-libs/event-system", "rust-libs/env-system", "rust-libs/vfs", "rust-libs/init-system", "rust-libs/lua-runtime", "rust-libs/mem-buffer"]
+members = ["rust-libs/error-system", "rust-libs/log-system", "rust-libs/python-bridge", "rust-libs/utils", "rust-libs/event-system", "rust-libs/env-system", "rust-libs/vfs", "rust-libs/init-system", "rust-libs/lua-runtime", "rust-libs/mem-buffer"]
 
 
 [package]
