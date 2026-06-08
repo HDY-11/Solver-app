@@ -1,1 +1,0 @@
-{"ts":1780792641183,"session_id":"diagnostic","agent_type":null,"agent_id":null,"event":"diagnostic","file":"","lines":0,"estTokens":0,"summaryTokens":0,"savedTokens":0,"level":"info","code":"mcp_startup","detail":{"project_root_source":"git-detect-or-cwd","claude_project_dir_present":false,"platform":"win32"}}
