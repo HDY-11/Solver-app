@@ -40,6 +40,7 @@ npm run tauri build
 
 - 项目根目录需要 `.venv` 文件夹（Python 3.13 虚拟环境），打包时会将 `Lib/site-packages/` 和标准库一起打包
 - 修改 Python 版本需同步更新 `src-tauri/build.rs` 中的 `rustc-link-lib=python313`
+- 本应用仍处于**验证原型**阶段，迭代调整较快，不代表最终质量和功能范围
 
 ## 致谢
 
