@@ -117,7 +117,7 @@ npm run tauri build
 - App.tsx *改*
 
 ### 后端
-> 次项待添加
+> 此项待添加
 
 ## 致谢
 
