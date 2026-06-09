@@ -1,3 +1,138 @@
+> **中文版在下面**，*Chinese version below*
+## English
+
+# Solver
+
+Desktop analysis workbench based on Tauri v2 + React + TypeScript.
+
+## Features
+
+- **Virtual File System (VFS)** — Drive C (SQLite + BlobStore), Drive B (native file system read/write), Drive A (import-only, read-only)
+- **Python Execution Engine** — Embedded Python 3.13, supports script editing, execution, and result viewing
+- **Multi-window Detach/Merge** — Drag tabs to detach as independent windows, drag back to Nav area to merge
+- **Monaco Editor** — Syntax highlighting and search for Python / JSON / Markdown / CSV, etc.
+- **File Management** — Create, rename, delete, drag-and-drop move, cross-drive import/export
+- **Run Result Management** — Stream output, history records, version timeline
+
+## Tech Stack
+
+| Layer       | Technology                                      |
+|-------------|-------------------------------------------------|
+| Frontend    | React 18, TypeScript, Monaco Editor, React Router v6 |
+| Backend     | Rust (Tauri v2), PyO3 (Python embedding)       |
+| Storage     | SQLite, custom BlobStore                       |
+| Icons       | FontAwesome                                     |
+| Desktop     | Windows (WebView2), custom title bar           |
+
+## Development
+
+```bash
+npm install
+npm run tauri dev
+```
+
+## Build
+
+```bash
+npm run tauri build
+```
+
+Build artifacts are located in src-tauri/target/release/bundle/.
+
+## Notes
+
+- The project root requires a `.venv` folder (Python 3.13 virtual environment). During packaging, `Lib/site-packages/` and the standard library are bundled together.
+- To change the Python version, update `rustc-link-lib=python313` in `src-tauri/build.rs` accordingly.
+- This application is still in the **validation prototype** stage, with rapid iterations. It does not represent final quality or functionality scope:
+  - To speed up development, **some** modules are assembled with **temporary** AI-generated logic and **not thoroughly reviewed**. See **Architecture Overview** for details.
+  - Some modules **have not yet evolved** to my intended full functionality and will be **completed in future** iterations.
+  - As a developer with limited experience, I appreciate your understanding and warmly welcome your **valuable feedback** (^.^)
+
+## Solver-app Architecture Overview
+
+> Legend
+> `[Review]` — Pending review
+> `[Modify]` — Pending modification, may change significantly
+> `[Extend]` — Pending extension, interface stable
+
+### Frontend
+
+- **api**
+  - `config.ts` — App config read/write (backend setting.toml) `[Review]`
+  - `console.ts` — .cmdv console backend commands `[Review]`
+  - `events.ts` — Tauri event listener wrapper
+  - `script.ts` — Script operation wrapper `[Modify]`
+  - `vfs.ts` — VFS operation wrapper `[Extend]`
+
+- **commands**
+  - `editorCommands.ts` — Editor command registration `[Modify]`
+
+- **components**
+  - `ConfirmDialog.tsx` — Confirmation dialog `[Modify]`
+  - `Loading.tsx` — Loading & empty state component `[Review]`
+  - `NewScriptDialog.tsx` — New file dialog `[Modify]`
+  - `ResultDetail.tsx` — Run result details (deprecated) `[Modify]`
+  - `ResultHistoryItem.tsx` — Run result entry `[Modify]`
+  - `RunList.tsx` — Run result list `[Modify]`
+  - `ShortcutHelp.tsx` — Shortcut help panel `[Modify]`
+  - `TimelinePanel.tsx` — Version timeline panel `[Modify]`
+  - `Toast.tsx` — Toast notification component
+
+- **hooks**
+  - `useSettings.tsx` — App settings context `[Modify]`
+  - `useTabs.tsx` — Tab management
+  - `useToast.tsx` — Global Toast notification management
+  - `useWindow.tsx` — Window operation management (unused) `[Extend]`
+
+- **layouts**
+  - `Footer.tsx` — Bottom status bar
+  - `Header.tsx` — Top navigation bar
+  - `Main.tsx` — Main content area
+  - `Nav.tsx` — Tab navigation bar
+  - `NavBar.tsx` — Left sidebar navigation
+  - `Sidebar.tsx` — Sidebar container
+  - `Toolbar.tsx` — Toolbar for renderer
+  - `WelcomeView.tsx` — Welcome page
+
+- **panels**
+  - `SettingPanel.tsx` — App settings panel `[Extend]`
+
+- **registry**
+  - `registry.ts` — Renderer registry `[Review]`
+  - `type.ts` — Type registry `[Modify]`
+
+- **renderers**
+  - `ConsoleRenderer.tsx` — .cmdv console file renderer `[Review]`
+  - `HtmlViewer.tsx` — HTML file viewer
+  - `PythonEditor.tsx` — Python code editor `[Extend]`
+  - `RunResult.tsx` — .run file (execution record) renderer `[Extend]`
+  - `TextViewer.tsx` — Text file editor
+  - `useConsole.ts` — .cmdv console state management hook `[Review]`
+
+- **services**
+  - `activeEditor.ts` — Active editor reference `[Modify]`
+  - `commandService.ts` — Command system `[Modify]`
+
+- **styles**
+
+- **utils**
+  - `icons.tsx` — FontAwesome icon mapping
+
+- `App.tsx` `[Modify]`
+
+### Backend
+> To be added
+
+## Acknowledgements
+
+This project uses the following open source libraries: Tauri, React, Monaco Editor, PyO3, FontAwesome, SQLite, and others.
+
+## License
+
+MIT
+
+## 中文
+
 # Solver
 
 桌面分析工作台，基于 Tauri v2 + React + TypeScript。
