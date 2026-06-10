@@ -121,7 +121,60 @@ Build artifacts are located in src-tauri/target/release/bundle/.
 - `App.tsx` `[Modify]`
 
 ### Backend
-> To be added
+
+- **Capabilities** / `default.json` — Capability for all windows
+- *plugin*
+  - **window_enhance**
+    - `lib.rs` — WindowBehavior processor signature + BehaviorError?
+    - `trait.rs` — HookBehavior bitflags (interest declaration)
+    - `behavior.rs` — HookBehavior implementation
+    - `platform.rs` — Platform abstraction, currently: (Windows / no-op)
+  - `window_proc.rs` — Unified window procedure *[Modify]*
+  - `manager.rs` — WindowManager facade, injects Hooks through it
+  - `state.rs` — WindowState runtime state
+  - `command.rs` — Public API (not Tauri commands)
+
+- *rust-libs*
+  - **env-system**
+    - `lib.rs`
+    - `config.rs` — Provides application configuration trait
+    - `path.rs` — Provides path constructors
+    - `vfs_path.rs` — Provides helper constructors for virtual paths
+  - **error-system**
+    - `lib.rs` — Defines AppError, provides `ResultExt` and `OptionExt` — automatically records error stack traces
+  - **event-system**
+    - `lib.rs` — Wraps Tauri events: four macros `emit!`, `emit_to!`, `listen`, `async_listen`
+  - **init-system**
+    - `lib.rs` — Manages initialization process, reports progress
+  - **log-system**
+    - `lib.rs` — Initialization logic
+    - `handle.rs` — Log write handle (LogHandle), allows writing to manual log section
+    - `logger.rs` — Implements `Log`, interfaces with `log` facade library, outputs logs via macros
+    - `message.rs` — Log message
+    - `worker.rs` — Worker thread
+    - `rotating_file.rs` — Rotating log file manager
+  - **lua-runtime**
+    - `lib.rs` — Mixed messy code, needs refactoring
+    - `vm.rs` — Single VM instance
+  - **mem-buffer**
+    - `lib.rs` — Ring memory buffer
+  - **python-bridge**
+    - `lib.rs` — Messy temporary logic
+    - `sdk.rs` — Should not be here
+  - **utils**
+    - `lib.rs` — Provides: stack-based ring buffer, cross-thread ownership and reference counting
+  - **vfs**
+    - `lib.rs`
+    - `pool.rs` — Resource pool
+    - `query.rs` — Management and database
+    - `real_fs.rs` — Drive A, B file lookup
+    - `vfs_core.rs` — Unified management layer
+    - `vir_file.rs` — VirFile handle
+
+- *src*
+  - `cli.rs` — Command line registration and execution
+  - `config.rs` — Application configuration module
+  - `lib.rs` — Central hub for various business logic, where initialization and shutdown teardown occur
 
 ## Acknowledgements
 
@@ -252,7 +305,61 @@ npm run tauri build
 - App.tsx *改*
 
 ### 后端
-> 此项待添加
+
+- **Capabilities** / `default.json` Capability for all windows
+- *plugin*
+  - **window_enhance**
+    - `lib.rs` WindowBehavior处理器签名 + BehaviorError?
+    - `trait.rs` HookBehavior bitflags（兴趣声明）
+    - `behavior.rs` HookBehavior 实现
+    - `platform.rs` 平台抽象，目前: (Windows / no-op)
+  - `window_proc.rs` 统一窗口进程 *改*
+  - `manager.rs` WindowManager 门面，通过它注入Hook
+  - `state.rs` WindowState 运行时状态
+  - `command.rs` 公共API（不是Tauri命令）
+
+- *rust-libs*
+  - **env-system**
+    - `lib.rs`
+    - `config.rs` 提供应用配置 trait
+    - `path.rs` 提供路径构造函数
+    - `vfs_path.rs` 提供虚拟路径的辅助构造函数
+  - **error-system**
+    - `lib.rs` 定义AppError，提供`ResultExt`和`OptionExt` — 自动记录错误栈
+  - **event-system**
+    - `lib.rs` 包装Tauri事件的`emit!`, `emit_to!`, `listen`, `async_listen` 四个宏
+  - **init-system**
+    - `lib.rs` 管理初始化过程、上报进度
+  - **log-system**
+    - `lib.rs` 初始化逻辑
+    - `handle.rs` 日志写入句柄，LogHandle，可从这里写入 手动日志区
+    - `logger.rs` 实现`Log`，与`log`门面库接入，通过宏输出日志
+    - `message.rs` 日志消息
+    - `worker.rs` 工作线程
+    - `rotating_file.rs` 轮换日志文件管理器
+  - **lua-runtime**
+    - `lib.rs` 混杂着的一团乱麻，需要整理
+    - `vm.rs` 单个虚拟
+  - **mem-buffer**
+    - `lib.rs` 环形内存缓冲区
+  - **python-bridge**
+    - `lib.rs` 混求的临时逻辑
+    - `sdk.rs` 不该出现在这里
+  - **utils**
+    - `lib.rs` 提供了：栈上的环形缓冲区，句跨线程的所有权与计数
+  - **vfs**
+    - `lib.rs`
+    - `pool.rs` 资源池
+    - `query.rs` 管理与数据库
+    - `real_fs.rs` A,B盘文件查找
+    - `vfs_corers` 统一管理层
+    - `vir_file.rs` VirFile 句柄
+
+- *src*
+  - `cli.rs` 命令行的注册和执行
+  - `config.rs` 应用配置模块
+  - `lib.rs` 各种业务逻辑的集中地，初始化、退出收尾的发生地
+
 
 ## 致谢
 
