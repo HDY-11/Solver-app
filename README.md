@@ -130,11 +130,11 @@ npm run tauri build
     - `lib.rs` WindowBehavior处理器签名 + BehaviorError?
     - `trait.rs` HookBehavior bitflags（兴趣声明）
     - `behavior.rs` HookBehavior 实现
-    - `platform.rs` 平台抽象，目前: (Windows / no-op)
-  - `window_proc.rs` 统一窗口进程 *改*
-  - `manager.rs` WindowManager 门面，通过它注入Hook
-  - `state.rs` WindowState 运行时状态
-  - `command.rs` 公共API（不是Tauri命令）
+    - `platform.rs` 平台抽象，目前: (Windows / no-op) *扩*
+    - `window_proc.rs` 统一窗口进程 *改*
+    - `manager.rs` WindowManager 门面，通过它注入Hook
+    - `state.rs` WindowState 运行时状态
+    - `command.rs` 公共API（不是Tauri命令）
 
 - *rust-libs*
   - **env-system**
@@ -156,27 +156,27 @@ npm run tauri build
     - `worker.rs` 工作线程
     - `rotating_file.rs` 轮换日志文件管理器
   - **lua-runtime**
-    - `lib.rs` 混杂着的一团乱麻，需要整理
-    - `vm.rs` 单个虚拟
-  - **mem-buffer**
+    - `lib.rs` 混杂着的一团乱麻，需要整理 *改*
+    - `vm.rs` 单个虚拟 *改*
+  - **mem-buffer** *改*
     - `lib.rs` 环形内存缓冲区
   - **python-bridge**
-    - `lib.rs` 混求的临时逻辑
-    - `sdk.rs` 不该出现在这里
+    - `lib.rs` 混合的临时逻辑 *改*
+    - `sdk.rs` 不该出现在这里 *改*
   - **utils**
     - `lib.rs` 提供了：栈上的环形缓冲区，句跨线程的所有权与计数
   - **vfs**
     - `lib.rs`
     - `pool.rs` 资源池
     - `query.rs` 管理与数据库
-    - `real_fs.rs` A,B盘文件查找
+    - `real_fs.rs` A,B盘文件查找 *改*
     - `vfs_corers` 统一管理层
     - `vir_file.rs` VirFile 句柄
 
 - *src*
-  - `cli.rs` 命令行的注册和执行
+  - `cli.rs` 命令行的注册和执行 *改*
   - `config.rs` 应用配置模块
-  - `lib.rs` 各种业务逻辑的集中地，初始化、退出收尾的发生地
+  - `lib.rs` 各种业务逻辑的集中地，初始化、退出收尾的发生地 *改*
 
 ### 第三方库
 
