@@ -51,8 +51,11 @@ Build artifacts are located in src-tauri/target/release/bundle/.
 ## Solver-app Architecture Overview
 
 > Legend
+> 
 > `[Review]` — Pending review
+> 
 > `[Modify]` — Pending modification, may change significantly
+> 
 > `[Extend]` — Pending extension, interface stable
 
 ### Frontend
@@ -125,14 +128,14 @@ Build artifacts are located in src-tauri/target/release/bundle/.
 - **Capabilities** / `default.json` — Capability for all windows
 - *plugin*
   - **window_enhance**
-    - `lib.rs` — WindowBehavior processor signature + BehaviorError?
+    - `lib.rs` — WindowBehavior processor signature + BehaviorError
     - `trait.rs` — HookBehavior bitflags (interest declaration)
     - `behavior.rs` — HookBehavior implementation
-    - `platform.rs` — Platform abstraction, currently: (Windows / no-op)
-  - `window_proc.rs` — Unified window procedure *[Modify]*
-  - `manager.rs` — WindowManager facade, injects Hooks through it
-  - `state.rs` — WindowState runtime state
-  - `command.rs` — Public API (not Tauri commands)
+    - `platform.rs` — Platform abstraction, currently: (Windows / no-op) `[Extend]`
+    - `window_proc.rs` — Unified window procedure `[Modify]`
+    - `manager.rs` — WindowManager facade, injects Hooks through it
+    - `state.rs` — WindowState runtime state
+    - `command.rs` — Public API (not Tauri commands)
 
 - *rust-libs*
   - **env-system**
@@ -141,7 +144,7 @@ Build artifacts are located in src-tauri/target/release/bundle/.
     - `path.rs` — Provides path constructors
     - `vfs_path.rs` — Provides helper constructors for virtual paths
   - **error-system**
-    - `lib.rs` — Defines AppError, provides `ResultExt` and `OptionExt` — automatically records error stack traces
+    - `lib.rs` — Defines AppError, provides `ResultExt` and `OptionExt` — automatically records error stack traces `[Review]`
   - **event-system**
     - `lib.rs` — Wraps Tauri events: four macros `emit!`, `emit_to!`, `listen`, `async_listen`
   - **init-system**
@@ -154,27 +157,27 @@ Build artifacts are located in src-tauri/target/release/bundle/.
     - `worker.rs` — Worker thread
     - `rotating_file.rs` — Rotating log file manager
   - **lua-runtime**
-    - `lib.rs` — Mixed messy code, needs refactoring
-    - `vm.rs` — Single VM instance
-  - **mem-buffer**
+    - `lib.rs` — Mixed messy code, needs refactoring `[Modify]`
+    - `vm.rs` — Single VM instance `[Modify]`
+  - **mem-buffer** `[Modify]`
     - `lib.rs` — Ring memory buffer
   - **python-bridge**
-    - `lib.rs` — Messy temporary logic
-    - `sdk.rs` — Should not be here
+    - `lib.rs` — Messy temporary logic `[Modify]`
+    - `sdk.rs` — Should not be here `[Modify]`
   - **utils**
     - `lib.rs` — Provides: stack-based ring buffer, cross-thread ownership and reference counting
   - **vfs**
     - `lib.rs`
     - `pool.rs` — Resource pool
     - `query.rs` — Management and database
-    - `real_fs.rs` — Drive A, B file lookup
+    - `real_fs.rs` — Drive A, B file lookup `[Modify]`
     - `vfs_core.rs` — Unified management layer
     - `vir_file.rs` — VirFile handle
 
 - *src*
-  - `cli.rs` — Command line registration and execution
+  - `cli.rs` — Command line registration and execution `[Modify]`
   - `config.rs` — Application configuration module
-  - `lib.rs` — Central hub for various business logic, where initialization and shutdown teardown occur
+  - `lib.rs` — Central hub for various business logic, where initialization and shutdown teardown occur `[Modify]`
 
 ## Acknowledgements
 
@@ -236,8 +239,11 @@ npm run tauri build
 ## Solver-app 架构图
 
 > 符号说明
+> 
 > 审：待审查
+> 
 > 改：待修改，可能发生较大变化
+> 
 > 扩：待扩展，接口不会发生较大变化
 
 ### 前端
