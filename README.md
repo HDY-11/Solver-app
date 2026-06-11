@@ -179,6 +179,51 @@ Build artifacts are located in src-tauri/target/release/bundle/.
   - `config.rs` — Application configuration module
   - `lib.rs` — Central hub for various business logic, where initialization and shutdown teardown occur `[Modify]`
 
+### Third-Party Libraries
+
+- **Backend**
+  - **tauri** 2
+  - **tauri-plugin-opener** 2
+  - **tauri-plugin-dialog** 2
+  - **tauri-plugin-log** 2
+  - **serde** 1 features: derive
+  - **serde_json** 1
+  - **pyo3** 0.28.3 features: auto-initialize
+  - **tokio** 1.52.1 features: time
+  - **log** 0.4.29
+  - **anyhow** 1.0.102
+  - **windows** 0.62.2 features: Win32_UI_Input_KeyboardAndMouse
+  - **crossbeam-channel** 0.5.15
+  - **once_cell** 1.21.4
+  - **thiserror** 2.0.18
+  - **dirs** 6.0.0
+  - **sha2** 0.11.0
+  - **hex** 0.4.3
+  - **uuid** 1 features: v4
+  - **toml** 1.1.2
+  - **r2d2** 0.8.10
+  - **r2d2_sqlite** 0.34
+  - **dashmap** 6.1.0
+  - **tauri-build**
+
+- **Frontend**
+  - **@fortawesome/fontawesome-svg-core** 7.2.0
+  - **@fortawesome/free-brands-svg-icons** 7.2.0
+  - **@fortawesome/free-solid-svg-icons** 7.2.0
+  - **@fortawesome/react-fontawesome** 0.3.1
+  - **@monaco-editor/react** 4.7.0
+  - **@tauri-apps/api** 2
+  - **@tauri-apps/plugin-dialog** 2.7.0
+  - **@tauri-apps/plugin-log** 2.8.0
+  - **@tauri-apps/plugin-opener** 2
+  - **@xterm/addon-fit** 0.11.0
+  - **@xterm/addon-web-links** 0.12.0
+  - **@xterm/xterm** 6.0.0
+  - **react** 19.1.0
+  - **react-dom** 19.1.0
+  - **react-router-dom** 7.13.1
+
+
 ## Acknowledgements
 
 This project uses the following open source libraries: Tauri, React, Monaco Editor, PyO3, FontAwesome, SQLite, and others.
@@ -365,6 +410,50 @@ npm run tauri build
   - `cli.rs` 命令行的注册和执行
   - `config.rs` 应用配置模块
   - `lib.rs` 各种业务逻辑的集中地，初始化、退出收尾的发生地
+
+### 第三方库
+
+- **后端**
+  - **tauri** 2
+  - **tauri-plugin-opener** 2
+  - **tauri-plugin-dialog** 2
+  - **tauri-plugin-log** 2
+  - **serde** 1 features: derive
+  - **serde_json** 1
+  - **pyo3** 0.28.3 features: auto-initialize
+  - **tokio** 1.52.1 features: time
+  - **log** 0.4.29
+  - **anyhow** 1.0.102
+  - **windows** 0.62.2 features: Win32_UI_Input_KeyboardAndMouse
+  - **crossbeam-channel** 0.5.15
+  - **once_cell** 1.21.4
+  - **thiserror** 2.0.18
+  - **dirs** 6.0.0
+  - **sha2** 0.11.0
+  - **hex** 0.4.3
+  - **uuid** 1 features: v4
+  - **toml** 1.1.2
+  - **r2d2** 0.8.10
+  - **r2d2_sqlite** 0.34
+  - **dashmap** 6.1.0
+  - **tauri-build**
+
+- **前端**
+  - **@fortawesome/fontawesome-svg-core** 7.2.0
+  - **@fortawesome/free-brands-svg-icons** 7.2.0
+  - **@fortawesome/free-solid-svg-icons** 7.2.0
+  - **@fortawesome/react-fontawesome** 0.3.1
+  - **@monaco-editor/react** 4.7.0
+  - **@tauri-apps/api** 2
+  - **@tauri-apps/plugin-dialog** 2.7.0
+  - **@tauri-apps/plugin-log** 2.8.0
+  - **@tauri-apps/plugin-opener** 2
+  - **@xterm/addon-fit** 0.11.0
+  - **@xterm/addon-web-links** 0.12.0
+  - **@xterm/xterm** 6.0.0
+  - **react** 19.1.0
+  - **react-dom** 19.1.0
+  - **react-router-dom** 7.13.1
 
 
 ## 致谢
